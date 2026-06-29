@@ -88,6 +88,8 @@ class SpeechToText:
         timeout_chunks = None
         if timeout:
             timeout_chunks = int(timeout * 1000 / config.CHUNK_DURATION_MS)
+            
+        max_duration_chunks = int(30.0 * 1000 / config.CHUNK_DURATION_MS) # 30s absolute max
 
         audio_buffer = []
         silence_counter = 0
@@ -135,6 +137,17 @@ class SpeechToText:
                     if timeout_chunks and speech_chunk_count < min_speech_chunks and silence_counter >= timeout_chunks:
                         recording = False
                         logger.debug(f"Reached active timeout ({timeout}s) with no speech. Sleeping.")
+                        return np.array([], dtype=np.float32)
+                        
+                    # Absolute safety cutoff to prevent infinite hang in noisy rooms
+                    if len(audio_buffer) >= max_duration_chunks:
+                        recording = False
+                        logger.warning("Max recording duration reached (30s). Cutting off to prevent hang.")
+                        
+                    # Instantly abort recording if a typed command is received
+                    from modules.api_server import hud_server
+                    if not hud_server.command_queue.empty():
+                        logger.debug("Typed command received via HUD. Aborting microphone recording.")
                         return np.array([], dtype=np.float32)
 
             if not audio_buffer:
