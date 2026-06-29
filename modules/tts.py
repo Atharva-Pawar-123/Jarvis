@@ -30,6 +30,7 @@ class StreamingTextToSpeech:
         self.stop_event = threading.Event()
         self.sentence_buffer = ""
         self.is_speaking = False
+        self._is_first_token = True
         
         # Sentence boundaries: . ! ? or ... followed by a space
         self.sentence_pattern = re.compile(r'([.!?]|\.\.\.)\s+')
@@ -69,6 +70,10 @@ class StreamingTextToSpeech:
 
     def on_token(self, token: str):
         """Called by LLM on every new token."""
+        if self._is_first_token:
+            print("\nJARVIS: ", end="", flush=True)
+            self._is_first_token = False
+        print(token, end="", flush=True)
         self.sentence_buffer += token
         
         # Check if we hit a sentence boundary
@@ -108,6 +113,7 @@ class StreamingTextToSpeech:
 
     def speak(self, text: str, blocking: bool = True):
         """Non-streaming use for simple responses."""
+        print(f"\nJARVIS: {text}")
         if not self.voice or not sd:
             logging.info(f"[TTS Output]: {text}")
             return
@@ -155,6 +161,10 @@ class StreamingTextToSpeech:
 
     def flush(self):
         """Synthesize whatever is left in the buffer at the end of generation."""
+        if not self._is_first_token:
+            print() # Print newline at the end of the stream
+            self._is_first_token = True
+            
         if self.sentence_buffer.strip():
             cleaned = self.strip_for_voice(self.sentence_buffer)
             if cleaned.strip():

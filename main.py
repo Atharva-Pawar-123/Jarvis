@@ -221,20 +221,27 @@ def main():
     # Main Loop
     try:
         while True:
-            # Wait for wake word
-            wake_event.wait(timeout=0.1)
-            if not wake_event.is_set():
-                continue
-            
-            wake_event.clear()
-            update_hud_state("listening")
-            
-            raw_text = stt.listen()
-            update_hud_state("idle")
-            
-            if not raw_text or len(raw_text.strip()) < 2:
-                tts.speak("I didn't catch that, sir.")
-                continue
+            # Check for typed commands first
+            if not hud_server.command_queue.empty():
+                raw_text = hud_server.command_queue.get()
+                if raw_text == "__TOGGLE_MUTE__":
+                    automation.mute_toggle()
+                    continue
+            else:
+                # Wait for wake word
+                wake_event.wait(timeout=0.1)
+                if not wake_event.is_set():
+                    continue
+                
+                wake_event.clear()
+                update_hud_state("listening")
+                
+                raw_text = stt.listen()
+                update_hud_state("idle")
+                
+                if not raw_text or len(raw_text.strip()) < 2:
+                    tts.speak("I didn't catch that, sir.")
+                    continue
 
             # Log and display
             print(f"\nYou: {raw_text}")
