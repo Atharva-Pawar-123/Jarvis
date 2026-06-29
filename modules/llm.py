@@ -1,407 +1,260 @@
 import logging
-from typing import Generator, List, Dict, Union, Any
-
-import requests
+import threading
+import time
+from typing import List, Dict, Callable
+import ollama
+import diskcache
 
 import config
-from modules.cost_tracker import CostTracker
 
-logger = logging.getLogger(__name__)
-
-
-class LLMEngine:
+class IntelligentLLMEngine:
     """
-    Interface to the LLM backend (Gemini API or local Ollama).
-
-    Handles connection verification, response generation, and graceful
-    fallback to local Ollama if the primary Gemini API is unreachable.
+    PURPOSE: The single brain of JARVIS. Routes queries to the right model based
+    on complexity, implements chain-of-thought reasoning, self-reflection, and
+    streaming output. Zero cloud API calls. Fully local.
     """
 
-    def __init__(self) -> None:
-        """Initialize the LLM engine based on config."""
-        self.backend = config.LLM_BACKEND.lower()
-        self.gemini_key = config.GEMINI_API_KEY
-        self.is_degraded = False  # Track if we fell back to Ollama
-        self._genai_client = None
+    def __init__(self, system_prompt: str, stream_callback: Callable = None, state_callback: Callable = None):
+        self.PRIMARY_MODEL = config.PRIMARY_MODEL
+        self.FAST_MODEL = config.FAST_MODEL
+        self.CODER_MODEL = config.CODER_MODEL
+        self.EMBED_MODEL = config.EMBED_MODEL
+        self.VISION_MODEL = config.VISION_MODEL
 
-        logger.info(f"Initializing LLM engine — Backend: {self.backend.upper()}")
+        self.system_prompt = system_prompt
+        self.stream_callback = stream_callback
+        self.state_callback = state_callback
+        
+        self.client = ollama.Client(host=config.OLLAMA_HOST)
+        self.cache = diskcache.Cache(str(config.CACHE_DIR), size_limit=500 * 1024 * 1024)
+        
+        self.token_counter = {"primary": 0, "fast": 0, "coder": 0}
+        
+        # Start pre-warming models
+        threading.Thread(target=self.pre_warm, daemon=True).start()
+        
+        logging.info(f"LLM Engine initialized. Primary: {self.PRIMARY_MODEL} | Fast: {self.FAST_MODEL}")
 
-        if self.backend == "gemini":
-            if not self.gemini_key:
-                logger.warning("GEMINI_API_KEY is empty. Falling back to Ollama.")
-                self.backend = "ollama"
-            else:
-                try:
-                    from google import genai
-                    self._genai_client = genai.Client(api_key=self.gemini_key)
-                    logger.info(f"Gemini API configured (Model: {config.GEMINI_MODEL})")
-                except ImportError:
-                    logger.error("google-genai not installed. Falling back to Ollama.")
-                    self.backend = "ollama"
-                except Exception as exc:
-                    logger.warning(f"Gemini API test failed: {exc}. Falling back to Ollama.")
-                    self.backend = "ollama"
-                    self.is_degraded = True
-
-        if self.backend == "ollama":
-            if not self.is_ollama_available():
-                raise RuntimeError(
-                    f"Ollama is not running at {config.OLLAMA_HOST}. "
-                    "Please start Ollama or configure a valid Gemini API key."
-                )
-            logger.info(f"Ollama engine ready (Model: {config.OLLAMA_MODEL})")
-
-    def is_ollama_available(self) -> bool:
-        """Check if local Ollama is reachable."""
+    def pre_warm(self):
+        """Pre-loads models into GPU VRAM."""
         try:
-            response = requests.get(config.OLLAMA_HOST, timeout=5)
-            return response.status_code == 200
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            return False
+            for model in [self.FAST_MODEL, self.PRIMARY_MODEL, self.CODER_MODEL]:
+                self.client.generate(model=model, prompt="hi", keep_alive=config.OLLAMA_KEEP_ALIVE)
+            logging.info("All models warm and ready.")
+        except Exception as e:
+            logging.error(f"Failed to pre-warm models: {e}")
 
-    def generate(
-        self,
-        messages: List[Dict[str, str]],
-        stream: bool = False,
-    ) -> Union[str, Generator[str, None, None]]:
-        """
-        Generate a response from the configured LLM.
-        """
-        try:
-            if self.backend == "gemini":
-                try:
-                    return self._generate_gemini(messages, stream)
-                except Exception as e:
-                    logger.warning(f"Gemini generation failed: {e}. Switching to Ollama for this turn.")
-                    self.is_degraded = True
-                    if self.is_ollama_available():
-                        if stream:
-                            return self._generate_ollama_stream(messages)
-                        else:
-                            return self._generate_ollama_blocking(messages)
-                    else:
-                        logger.warning("Ollama is also unavailable — both LLM backends are down.")
-                        raise RuntimeError("Both LLM backends are unavailable.")
-            else:
+    def generate(self, messages: List[Dict], stream: bool = True, use_cot: bool = False, model: str = None) -> str:
+        model = model or self.PRIMARY_MODEL
+        
+        retries = 3
+        for attempt in range(retries):
+            try:
+                if use_cot:
+                    return self.chain_of_thought(messages, model)
+                
+                # Prepend the system prompt if not present
+                has_system = any(m.get("role") == "system" for m in messages)
+                final_messages = messages.copy()
+                if not has_system:
+                    final_messages.insert(0, {"role": "system", "content": self.system_prompt})
+                
                 if stream:
-                    return self._generate_ollama_stream(messages)
+                    return self._generate_streaming(final_messages, model)
                 else:
-                    return self._generate_ollama_blocking(messages)
-        except Exception as exc:
-            logger.error(f"Critical LLM failure (Both Primary and Fallback failed): {exc}")
-            error_msg = "I'm having trouble reaching my reasoning engine, sir. I'll continue to monitor your commands, but my responses may be limited."
-            if stream:
-                def err_gen():
-                    yield error_msg
-                return err_gen()
-            return error_msg
-
-    def _generate_gemini(self, messages: List[Dict[str, str]], stream: bool) -> Union[str, Generator[str, None, None]]:
-        from google.genai import types
-
-        # Extract system prompt and build contents
-        system_instruction = None
-        contents = []
-
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "system":
-                system_instruction = content
-            elif role == "user":
-                contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
-            elif role == "assistant":
-                contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
-
-        gen_config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=config.GEMINI_TEMPERATURE,
-        )
-
-        if stream:
-            def gemini_streamer():
-                _in_tokens = 0
-                _out_tokens = 0
-                response = self._genai_client.models.generate_content_stream(
-                    model=config.GEMINI_MODEL,
-                    contents=contents,
-                    config=gen_config,
-                )
-                for chunk in response:
-                    if chunk.text:
-                        yield chunk.text
-                    # Capture usage from the final chunk
-                    try:
-                        um = chunk.usage_metadata
-                        if um and um.prompt_token_count:
-                            _in_tokens = um.prompt_token_count
-                            _out_tokens = um.candidates_token_count or 0
-                    except Exception:
-                        pass
-                # Record after stream ends
-                try:
-                    if _in_tokens:
-                        CostTracker.get().record(
-                            model=config.GEMINI_MODEL,
-                            input_tokens=_in_tokens,
-                            output_tokens=_out_tokens,
-                            backend="gemini",
-                        )
-                except Exception:
-                    pass
-            return gemini_streamer()
-        else:
-            response = self._genai_client.models.generate_content(
-                model=config.GEMINI_MODEL,
-                contents=contents,
-                config=gen_config,
-            )
-            # Track token cost
-            try:
-                um = response.usage_metadata
-                CostTracker.get().record(
-                    model=config.GEMINI_MODEL,
-                    input_tokens=um.prompt_token_count or 0,
-                    output_tokens=um.candidates_token_count or 0,
-                    backend="gemini",
-                )
-            except Exception:
-                pass
-            return response.text.strip()
-
-    def _generate_ollama_blocking(self, messages: List[Dict[str, str]]) -> str:
-        import ollama as ollama_client
-        client = ollama_client.Client(host=config.OLLAMA_HOST)
-        response = client.chat(
-            model=config.OLLAMA_MODEL,
-            messages=messages,
-            options={
-                "temperature": config.OLLAMA_TEMPERATURE,
-                "num_thread": config.OLLAMA_NUM_THREADS,
-                "num_gpu": getattr(config, "OLLAMA_NUM_GPU", 0),
-            },
-        )
-        # Record Ollama usage ($0 cost — local inference)
-        # Use attribute access since response is an ollama.ChatResponse object
-        try:
-            in_tokens = getattr(response, "prompt_eval_count", 0) or 0
-            out_tokens = getattr(response, "eval_count", 0) or 0
-            CostTracker.get().record(
-                model=config.OLLAMA_MODEL,
-                input_tokens=in_tokens,
-                output_tokens=out_tokens,
-                backend="ollama",
-            )
-        except Exception:
-            pass
-        return response.message.content.strip()
-
-    def _generate_ollama_stream(self, messages: List[Dict[str, str]]) -> Generator[str, None, None]:
-        import ollama as ollama_client
-        client = ollama_client.Client(host=config.OLLAMA_HOST)
-        stream = client.chat(
-            model=config.OLLAMA_MODEL,
-            messages=messages,
-            options={
-                "temperature": config.OLLAMA_TEMPERATURE,
-                "num_thread": config.OLLAMA_NUM_THREADS,
-                "num_gpu": getattr(config, "OLLAMA_NUM_GPU", 0),
-            },
-            stream=True,
-        )
-        for chunk in stream:
-            # chunk is an ollama.ChatResponse object, use attribute access
-            content = getattr(chunk.message, "content", "") if chunk.message else ""
-            if content:
-                yield content
-
-    def generate_with_tools(
-        self,
-        messages: List[Dict[str, str]],
-        tools: List[Dict],
-    ) -> Dict[str, Any]:
-        """
-        Generate a response with tool schemas.
-        Returns a dictionary:
-        {
-            "content": "Text response if any",
-            "tool_calls": [
-                {
-                    "name": "tool_name",
-                    "arguments": {"arg1": "val"}
-                }
-            ]
-        }
-        """
-        if self.backend == "gemini" and not self.is_degraded:
-            try:
-                return self._generate_gemini_tools(messages, tools)
+                    return self._generate_blocking(final_messages, model)
             except Exception as e:
-                err_msg = str(e).replace('\n', ' ')
-                logger.warning(f"Gemini tools generation failed: {err_msg[:150]}. Falling back to Ollama.")
-                self.is_degraded = True
-                
-        if self.is_ollama_available():
-            return self._generate_ollama_tools(messages, tools)
-            
-        raise RuntimeError("Both LLM backends are unavailable for tool calling.")
-
-    def _generate_gemini_tools(self, messages: List[Dict[str, str]], tools: List[Dict]) -> Dict[str, Any]:
-        from google.genai import types
-
-        # Convert simple JSON schema tools to Gemini Tool declarations
-        gemini_tools = []
-        declarations = []
+                logging.warning(f"Ollama generation failed (attempt {attempt+1}/{retries}): {e}")
+                time.sleep(2)
         
-        for t in tools:
-            # We assume t is in standard OpenAI/JSON Schema format
-            name = t.get("name", "")
-            desc = t.get("description", "")
-            params = t.get("parameters", {})
+        raise RuntimeError(f"Ollama is unreachable after {retries} retries.")
+
+    def _generate_streaming(self, messages: List[Dict], model: str) -> str:
+        if self.state_callback:
+            self.state_callback("thinking")
             
-            # Very basic conversion for standard JSON schemas to Gemini types
-            properties = {}
-            for k, v in params.get("properties", {}).items():
-                prop_type_str = v.get("type", "string").upper()
-                prop_type = getattr(types.Type, prop_type_str, types.Type.STRING)
-                properties[k] = types.Schema(
-                    type=prop_type,
-                    description=v.get("description", ""),
-                )
+        stream = self.client.chat(model=model, messages=messages, stream=True)
+        full_response = ""
+        
+        for chunk in stream:
+            content = chunk.get("message", {}).get("content", "")
+            if content:
+                full_response += content
+                if self.stream_callback:
+                    self.stream_callback(content)
+                    
+        # Token count approximation since stream=True doesn't easily return eval_count in python client sometimes,
+        # but we do our best simple count
+        self.token_counter["primary" if model == self.PRIMARY_MODEL else "fast"] += len(full_response) // 4
+        
+        if self.state_callback:
+            self.state_callback("idle")
             
-            declaration = types.FunctionDeclaration(
-                name=name,
-                description=desc,
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties=properties,
-                    required=params.get("required", [])
-                )
-            )
-            declarations.append(declaration)
+        return full_response
 
-        if declarations:
-            gemini_tools.append(types.Tool(function_declarations=declarations))
-
-        # Build contents
-        system_instruction = None
-        contents = []
-
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
+    def _generate_blocking(self, messages: List[Dict], model: str) -> str:
+        response = self.client.chat(model=model, messages=messages, stream=False)
+        content = response.get("message", {}).get("content", "")
+        
+        # Track usage
+        tokens = response.get("eval_count", len(content)//4)
+        if model == self.PRIMARY_MODEL:
+            self.token_counter["primary"] += tokens
+        elif model == self.FAST_MODEL:
+            self.token_counter["fast"] += tokens
+        elif model == self.CODER_MODEL:
+            self.token_counter["coder"] += tokens
             
-            if role == "system":
-                system_instruction = content
-            elif role == "user":
-                contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
-            elif role == "assistant":
-                contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
-            elif role == "tool":
-                # Handle tool response messages
-                tool_name = msg.get("name", "unknown")
-                # Ensure we pass dict for tool_response
-                import json
-                try:
-                    tool_data = json.loads(content)
-                except:
-                    tool_data = {"result": content}
-                
-                contents.append(
-                    types.Content(
-                        role="function", 
-                        parts=[
-                            types.Part.from_function_response(
-                                name=tool_name,
-                                response=tool_data
-                            )
-                        ]
-                    )
-                )
+        return content
 
-        gen_config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.1, # Low temp for tool calling
-            tools=gemini_tools if gemini_tools else None
+    def chain_of_thought(self, messages: List[Dict], model: str = None) -> str:
+        model = model or self.PRIMARY_MODEL
+        
+        # STEP 1: REASONING PASS
+        cot_messages = messages.copy()
+        cot_system_msg = (
+            f"{self.system_prompt}\n"
+            "Before answering, work through this step by step inside <thinking> tags. "
+            "Consider: what is being asked, what information is needed, what tools "
+            "might be required, what could go wrong, and what the ideal answer looks like. "
+            "Only after thinking write your final answer outside the <thinking> tags."
         )
+        cot_messages.insert(0, {"role": "system", "content": cot_system_msg})
+        
+        raw_response = self._generate_blocking(cot_messages, model)
+        
+        # Extract thinking and final answer
+        thinking_text = ""
+        final_answer = raw_response
+        
+        if "<thinking>" in raw_response and "</thinking>" in raw_response:
+            start = raw_response.find("<thinking>") + len("<thinking>")
+            end = raw_response.find("</thinking>")
+            thinking_text = raw_response[start:end].strip()
+            final_answer = raw_response[end + len("</thinking>"):].strip()
+            logging.info(f"JARVIS Internal Thought: {thinking_text}")
+        elif "</thinking>" in raw_response:
+            final_answer = raw_response.split("</thinking>")[-1].strip()
+        
+        if not final_answer:
+            final_answer = raw_response # fallback
+            
+        # STEP 2: SELF-REFLECTION PASS
+        reflection_prompt = [
+            {"role": "system", "content": "Review this response: [" + final_answer + "]\nScore it 1-10 for: accuracy, completeness, JARVIS personality adherence.\nIf any score is below 7, return REVISE with specific improvements.\nIf all scores are 7+, return ACCEPT."}
+        ]
+        reflection = self._generate_blocking(reflection_prompt, self.FAST_MODEL)
+        
+        if "REVISE" in reflection:
+            revision_messages = messages.copy()
+            revision_messages.insert(0, {"role": "system", "content": self.system_prompt})
+            revision_messages.append({"role": "assistant", "content": final_answer})
+            revision_messages.append({"role": "user", "content": f"Improve the previous response based on these notes: {reflection}"})
+            final_answer = self._generate_blocking(revision_messages, model)
+            
+        # STEP 3: VOICE FORMATTING PASS
+        voice_prompt = [
+            {"role": "system", "content": "Reformat this response for natural spoken audio. Rules: no markdown, no bullet points, no numbered lists, no URLs spelled out, no special characters. Convert any lists to natural prose. Keep JARVIS personality."},
+            {"role": "user", "content": final_answer}
+        ]
+        
+        if self.state_callback:
+            self.state_callback("speaking")
+            
+        if self.stream_callback:
+            return self._generate_streaming(voice_prompt, self.FAST_MODEL)
+        else:
+            return self._generate_blocking(voice_prompt, self.FAST_MODEL)
 
-        response = self._genai_client.models.generate_content(
-            model=config.GEMINI_MODEL,
-            contents=contents,
-            config=gen_config,
+    def complexity_score(self, user_text: str) -> int:
+        cache_key = f"complexity_{user_text}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+            
+        prompt = [
+            {"role": "user", "content": (
+                "Rate the complexity of this request from 1-10. Return only the integer.\n"
+                "1-3: simple factual, greetings, basic tasks.\n"
+                "4-6: multi-step tasks, requires reasoning.\n"
+                "7-10: complex analysis, research, multi-tool orchestration, code projects.\n"
+                f"Request: {user_text}"
+            )}
+        ]
+        try:
+            res = self._generate_blocking(prompt, self.FAST_MODEL)
+            # Find the first integer in the response
+            import re
+            match = re.search(r'\d+', res)
+            score = int(match.group()) if match else 5
+            score = max(1, min(10, score))
+        except Exception:
+            score = 5
+            
+        self.cache.set(cache_key, score, expire=3600) # 1 hour cache
+        return score
+
+    def classify_intent(self, user_text: str) -> dict:
+        # Will be implemented fully in intent.py, but leaving here if needed by architectural mistake in prompt, 
+        # actually prompt says dual model intent goes to modules/intent.py
+        pass
+
+    def generate_code(self, task: str, language: str = "python", existing_code: str = None) -> str:
+        sys_msg = (
+            f"You are an expert {language} programmer. Write clean, production-ready code.\n"
+            "Include proper error handling, docstrings, and type hints.\n"
+            "Return ONLY the code. No markdown fences. No explanations before or after."
         )
+        messages = [{"role": "system", "content": sys_msg}]
+        if existing_code:
+            messages.append({"role": "user", "content": f"Existing Code:\n{existing_code}\n\nTask: {task}"})
+        else:
+            messages.append({"role": "user", "content": task})
+            
+        return self._generate_blocking(messages, self.CODER_MODEL)
 
-        result = {
-            "content": response.text.strip() if response.text else "",
-            "tool_calls": []
+    def fix_code(self, code: str, error: str, language: str = "python") -> str:
+        messages = [
+            {"role": "system", "content": f"You are an expert {language} programmer. Return ONLY the corrected code. No explanations. No markdown."},
+            {"role": "user", "content": f"Broken Code:\n{code}\n\nError:\n{error}\n\nFix this code."}
+        ]
+        return self._generate_blocking(messages, self.CODER_MODEL)
+
+    def embed(self, text: str) -> list[float]:
+        cache_key = f"embed_{text}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+            
+        res = self.client.embeddings(model=self.EMBED_MODEL, prompt=text)
+        embedding = res.get("embedding", [])
+        
+        # Max cache 10000 entries roughly checking size limit
+        self.cache.set(cache_key, embedding)
+        return embedding
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            return list(executor.map(self.embed, texts))
+
+    def summarize_for_memory(self, conversation: List[Dict]) -> str:
+        conv_text = "\n".join([f"{m['role']}: {m['content']}" for m in conversation[-6:]])
+        prompt = [
+            {"role": "system", "content": "Summarize this conversation in 2-3 sentences capturing only the key facts, decisions made, and user preferences revealed. Be concise."},
+            {"role": "user", "content": conv_text}
+        ]
+        return self._generate_blocking(prompt, self.FAST_MODEL)
+
+    def get_token_usage(self) -> dict:
+        return {
+            f"{self.PRIMARY_MODEL}": f"{self.token_counter['primary']} tokens - $0.00 (local)",
+            f"{self.FAST_MODEL}": f"{self.token_counter['fast']} tokens - $0.00 (local)",
+            f"{self.CODER_MODEL}": f"{self.token_counter['coder']} tokens - $0.00 (local)"
         }
-        
-        # Extract tool calls if any
-        if response.function_calls:
-            for fc in response.function_calls:
-                # Need to convert proto MapComposite to standard dict
-                args = {}
-                if hasattr(fc, 'args') and fc.args is not None:
-                    try:
-                        # Depending on the exact proto version, we convert
-                        args = dict(fc.args)
-                    except:
-                        pass
-                
-                result["tool_calls"].append({
-                    "name": fc.name,
-                    "arguments": args
-                })
 
-        return result
-
-    def _generate_ollama_tools(self, messages: List[Dict[str, str]], tools: List[Dict]) -> Dict[str, Any]:
-        import ollama as ollama_client
-        client = ollama_client.Client(host=config.OLLAMA_HOST)
-        
-        # Convert standard schema to Ollama format
-        ollama_tools = []
-        for t in tools:
-            ollama_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t.get("name"),
-                    "description": t.get("description"),
-                    "parameters": t.get("parameters", {})
-                }
-            })
-            
-        # Re-map "tool" role to "tool" in ollama
-        ollama_msgs = []
-        for msg in messages:
-            if msg["role"] == "tool":
-                ollama_msgs.append({
-                    "role": "tool",
-                    "content": msg["content"]
-                })
-            else:
-                ollama_msgs.append(msg)
-
-        response = client.chat(
-            model=config.OLLAMA_MODEL,
-            messages=ollama_msgs,
-            tools=ollama_tools if ollama_tools else None,
-            options={
-                "temperature": 0.1,
-            },
-        )
-        
-        result = {
-            "content": getattr(response.message, "content", "") or "",
-            "tool_calls": []
-        }
-        
-        if hasattr(response.message, "tool_calls") and response.message.tool_calls:
-            for tc in response.message.tool_calls:
-                result["tool_calls"].append({
-                    "name": getattr(tc.function, "name", ""),
-                    "arguments": getattr(tc.function, "arguments", {})
-                })
-                
-        return result
-
+    def is_available(self) -> bool:
+        import requests
+        try:
+            r = requests.get(config.OLLAMA_HOST, timeout=2)
+            return r.status_code == 200
+        except Exception:
+            return False

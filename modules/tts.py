@@ -1,184 +1,166 @@
-"""
-modules/tts.py — JARVIS Text-to-Speech (Piper TTS)
-====================================================
-Synthesizes JARVIS responses to audio using Piper TTS with the deep
-male "Alan" voice model. Plays audio via sounddevice. Supports both
-blocking and non-blocking (async thread) playback. Strips markdown
-formatting before speaking since symbols don't translate to speech.
-"""
-
 import logging
-import re
 import threading
-from pathlib import Path
-from typing import Optional
+import queue
+import re
+import io
+import time
+try:
+    import sounddevice as sd
+except ImportError:
+    logging.warning("sounddevice not installed, TTS playback will not work.")
+    sd = None
 
-import numpy as np
-import sounddevice as sd
 from piper.voice import PiperVoice
-
 import config
 
-logger = logging.getLogger(__name__)
-
-
-class TextToSpeech:
+class StreamingTextToSpeech:
     """
-    Text-to-speech engine using Piper TTS.
-
-    Loads the configured Piper voice model on initialization. Provides
-    blocking and non-blocking speech synthesis with clean audio playback.
+    Streaming TTS Engine.
+    Speaks tokens as soon as a complete sentence is formed by the LLM.
+    Zero blocking on the main LLM streaming loop.
     """
+    def __init__(self):
+        try:
+            self.voice = PiperVoice.load(config.PIPER_MODEL_PATH, config.PIPER_CONFIG_PATH)
+        except Exception as e:
+            logging.error(f"Failed to load Piper TTS model: {e}")
+            self.voice = None
+            
+        self.audio_queue = queue.Queue()
+        self.stop_event = threading.Event()
+        self.sentence_buffer = ""
+        self.is_speaking = False
+        
+        # Sentence boundaries: . ! ? or ... followed by a space
+        self.sentence_pattern = re.compile(r'([.!?]|\.\.\.)\s+')
+        
+        # Start playback thread
+        if sd:
+            threading.Thread(target=self._audio_player_loop, daemon=True).start()
+        
+        logging.info("Streaming TTS engine initialized.")
 
-    # Regex to strip common markdown symbols that don't make sense in speech
-    _MARKDOWN_PATTERN = re.compile(
-        r"(\*{1,3}|_{1,3}|`{1,3}|#{1,6}\s?|~~|\[|\]|\(|\)|>|---|\|)"
-    )
+    def _audio_player_loop(self):
+        while True:
+            if self.stop_event.is_set():
+                while not self.audio_queue.empty():
+                    try:
+                        self.audio_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                time.sleep(0.1)
+                continue
 
-    def __init__(self) -> None:
-        """
-        Load the Piper voice model from the configured paths.
-
-        Raises:
-            FileNotFoundError: If the .onnx model file does not exist.
-        """
-        model_path = Path(config.PIPER_MODEL_PATH)
-        if not model_path.exists():
-            logger.error(f"Piper voice model not found at: {config.PIPER_MODEL_PATH}")
-            raise FileNotFoundError(
-                f"Piper voice model not found at: {config.PIPER_MODEL_PATH}"
-            )
-
-        logger.info(f"Loading Piper TTS model from: {config.PIPER_MODEL_PATH}")
-        self._voice = PiperVoice.load(
-            model_path=config.PIPER_MODEL_PATH,
-            config_path=config.PIPER_CONFIG_PATH,
-            use_cuda=False,  # Piper runs on CPU; GPU is reserved for Whisper
-        )
-        self._lock = threading.Lock()  # Prevent overlapping audio playback
-        self.length_scale = 1.0        # Default speaking rate
-        logger.info("Piper TTS model loaded and ready.")
-
-    @staticmethod
-    def _strip_markdown(text: str) -> str:
-        """
-        Remove markdown formatting symbols that are not suitable for speech.
-
-        Args:
-            text (str): Raw text potentially containing markdown.
-
-        Returns:
-            str: Clean text suitable for TTS synthesis.
-        """
-        cleaned = TextToSpeech._MARKDOWN_PATTERN.sub("", text)
-        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-        return cleaned
-
-
-    def speak(self, text: str, blocking: bool = True, temp_length_scale: Optional[float] = None) -> None:
-        """
-        Synthesize and play speech audio for the given text.
-
-        Strips markdown from text before synthesis. Uses sounddevice for
-        playback. Thread-safe: only one playback occurs at a time.
-
-        Args:
-            text (str): The text for JARVIS to speak. May contain markdown.
-            blocking (bool): If True (default), waits for playback to complete
-                before returning. If False, plays in a background thread.
-            temp_length_scale (float, optional): Temporary speed adjustment for this call.
-        """
-        if not text or not text.strip():
-            return
-
-        clean_text = self._strip_markdown(text)
-        if not clean_text.strip():
-            return
-
-        effective_length = temp_length_scale if temp_length_scale is not None else self.length_scale
-
-        if blocking:
-            self._play_blocking(clean_text, effective_length)
-        else:
-            thread = threading.Thread(
-                target=self._play_blocking,
-                args=(clean_text, effective_length),
-                daemon=True,
-                name="TTS-Playback",
-            )
-            thread.start()
-
-    def _play_blocking(self, text: str, length_scale: Optional[float] = None) -> None:
-        """
-        Internal: synthesize text and play it synchronously.
-
-        Acquires the playback lock to prevent audio conflicts.
-        Passes length_scale to Piper's SynthesisConfig to control speaking speed.
-
-        Args:
-            text (str): Clean text (no markdown) to synthesize and play.
-            length_scale (float, optional): Overrides self.length_scale if provided.
-        """
-        with self._lock:
             try:
-                audio_arrays = []
-                sample_rate = self._voice.config.sample_rate
-                effective_scale = length_scale if length_scale is not None else self.length_scale
+                # Block until audio is available
+                audio_array = self.audio_queue.get(timeout=0.5)
+                self.is_speaking = True
+                
+                if not self.stop_event.is_set():
+                    sd.play(audio_array, config.TTS_OUTPUT_RATE)
+                    sd.wait() # Block this thread until the sentence finishes
+                
+                self.is_speaking = False
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logging.error(f"Error playing audio chunk: {e}")
+                self.is_speaking = False
 
-                # Try to use Piper's native SynthesisConfig for speed control
-                try:
-                    from piper.voice import SynthesisConfig
-                    synth_config = SynthesisConfig(length_scale=effective_scale)
-                    for chunk in self._voice.synthesize(text, synth_config):
-                        audio_arrays.append(chunk.audio_float_array)
-                        sample_rate = chunk.sample_rate
-                except (ImportError, TypeError):
-                    # Fallback: synthesize normally and resample for speed
-                    for chunk in self._voice.synthesize(text):
-                        audio_arrays.append(chunk.audio_float_array)
-                        sample_rate = chunk.sample_rate
+    def on_token(self, token: str):
+        """Called by LLM on every new token."""
+        self.sentence_buffer += token
+        
+        # Check if we hit a sentence boundary
+        match = self.sentence_pattern.search(self.sentence_buffer)
+        if match:
+            split_point = match.end()
+            sentence = self.sentence_buffer[:split_point]
+            self.sentence_buffer = self.sentence_buffer[split_point:]
+            
+            cleaned = self.strip_for_voice(sentence)
+            if cleaned.strip():
+                threading.Thread(target=self._synthesize_and_queue, args=(cleaned,), daemon=True).start()
 
-                if not audio_arrays:
+    def _synthesize_and_queue(self, text: str):
+        if not self.voice or self.stop_event.is_set():
+            return
+            
+        try:
+            # Piper synthesize returns an iterator of AudioChunk objects
+            audio_stream = self.voice.synthesize(text)
+            import numpy as np
+            
+            frames = []
+            for chunk in audio_stream:
+                if self.stop_event.is_set():
                     return
+                # Extract raw 16-bit PCM bytes
+                frames.append(chunk.audio_int16_bytes)
+                
+            if frames and not self.stop_event.is_set():
+                raw_bytes = b"".join(frames)
+                audio_array = np.frombuffer(raw_bytes, dtype=np.int16)
+                self.audio_queue.put(audio_array)
+                
+        except Exception as e:
+            logging.error(f"Piper synthesis error: {e}")
 
-                audio_array = np.concatenate(audio_arrays, axis=0)
+    def speak(self, text: str, blocking: bool = True):
+        """Non-streaming use for simple responses."""
+        if not self.voice or not sd:
+            logging.info(f"[TTS Output]: {text}")
+            return
+            
+        cleaned = self.strip_for_voice(text)
+        if not cleaned.strip():
+            return
+            
+        self._synthesize_and_queue(cleaned)
+        
+        if blocking:
+            while not self.audio_queue.empty() or self.is_speaking:
+                time.sleep(0.1)
 
-                sd.play(audio_array, samplerate=sample_rate)
-                sd.wait()
-            except Exception as exc:
-                logger.error(f"TTS playback error: {exc}", exc_info=True)
+    def stop(self):
+        self.stop_event.set()
+        if sd:
+            sd.stop()
+        
+        # Clear queue
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+                
+        self.sentence_buffer = ""
+        self.is_speaking = False
+        # Reset event so it can play again
+        self.stop_event.clear()
 
-    def speak_async(self, text: str) -> None:
-        """
-        Non-blocking wrapper: speaks without waiting for completion.
+    def strip_for_voice(self, text: str) -> str:
+        """Removes markdown and unpronounceable characters."""
+        text = text.replace("e.g.", "for example")
+        text = text.replace("i.e.", "that is")
+        
+        # Remove markdown symbols
+        for char in ["**", "*", "#", "`", "_", "~", "|"]:
+            text = text.replace(char, "")
+            
+        # Replace URLs
+        text = re.sub(r'https?://[^\s]+', 'the link', text)
+        
+        return text.strip()
 
-        Args:
-            text (str): Text for JARVIS to speak.
-        """
-        self.speak(text, blocking=False)
-
-    def stop(self) -> None:
-        """
-        Immediately halts any currently playing audio.
-        """
-        logger.debug("TTS playback interrupted via stop().")
-        sd.stop()
-
-    def increase_speed(self) -> str:
-        """
-        Increases the speaking rate.
-        Returns a confirmation message.
-        """
-        # Lower length_scale = faster speech
-        self.length_scale = max(0.5, self.length_scale * 0.85)
-        return "I have increased my speaking rate, sir."
-
-    def decrease_speed(self) -> str:
-        """
-        Decreases the speaking rate.
-        Returns a confirmation message.
-        """
-        # Higher length_scale = slower speech
-        self.length_scale = min(2.0, self.length_scale * 1.15)
-        return "I have decreased my speaking rate, sir."
-
+    def flush(self):
+        """Synthesize whatever is left in the buffer at the end of generation."""
+        if self.sentence_buffer.strip():
+            cleaned = self.strip_for_voice(self.sentence_buffer)
+            if cleaned.strip():
+                self._synthesize_and_queue(cleaned)
+            self.sentence_buffer = ""
+            
+        # Wait for queue to empty so JARVIS finishes speaking before returning control
+        while not self.audio_queue.empty() or self.is_speaking:
+            time.sleep(0.1)

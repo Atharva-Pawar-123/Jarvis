@@ -27,127 +27,15 @@ import config
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Gemini 2.0 Flash pricing (USD per 1M tokens)
-# ---------------------------------------------------------------------------
-GEMINI_PRICING: Dict[str, Dict[str, float]] = {
-    "gemini-2.0-flash": {
-        "input_short":  0.075,   # ≤128k tokens context
-        "input_long":   0.150,   # >128k tokens context
-        "output":       0.300,
-        "context_limit": 128_000,
-    },
-    "gemini-2.0-flash-lite": {
-        "input_short":  0.075,
-        "input_long":   0.075,
-        "output":       0.30,
-        "context_limit": 128_000,
-    },
-    "gemini-1.5-flash": {
-        "input_short":  0.075,
-        "input_long":   0.15,
-        "output":       0.30,
-        "context_limit": 128_000,
-    },
-    "gemini-1.5-pro": {
-        "input_short":  1.25,
-        "input_long":   2.50,
-        "output":       5.00,
-        "context_limit": 128_000,
-    },
-}
-
-# Fallback pricing for unknown Gemini models
-_DEFAULT_GEMINI_PRICING = {
-    "input_short":  0.075,
-    "input_long":   0.15,
-    "output":       0.30,
-    "context_limit": 128_000,
-}
-
-# Path where session cost data is persisted
-COST_DB_PATH = Path(config.BASE_DIR) / "data" / "cost_tracker.json"
-
-
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ModelUsage:
-    """Accumulated token usage and cost for a single model."""
-    model: str
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost_usd: float = 0.0
-    call_count: int = 0
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "ModelUsage":
-        return cls(**data)
-
-
-@dataclass
-class SessionStats:
-    """Aggregate stats for one JARVIS session (or cumulative)."""
-    session_id: str
-    date: str = field(default_factory=lambda: str(date.today()))
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    total_cost_usd: float = 0.0
-    total_calls: int = 0
-    model_breakdown: Dict[str, dict] = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return {
-            "session_id": self.session_id,
-            "date": self.date,
-            "total_input_tokens": self.total_input_tokens,
-            "total_output_tokens": self.total_output_tokens,
-            "total_cost_usd": self.total_cost_usd,
-            "total_calls": self.total_calls,
-            "model_breakdown": self.model_breakdown,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "SessionStats":
-        obj = cls(session_id=data["session_id"])
-        obj.date = data.get("date", str(date.today()))
-        obj.total_input_tokens = data.get("total_input_tokens", 0)
-        obj.total_output_tokens = data.get("total_output_tokens", 0)
-        obj.total_cost_usd = data.get("total_cost_usd", 0.0)
-        obj.total_calls = data.get("total_calls", 0)
-        obj.model_breakdown = data.get("model_breakdown", {})
-        return obj
-
-
-# ---------------------------------------------------------------------------
 # Cost calculation
 # ---------------------------------------------------------------------------
 
 def calculate_usd_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """
-    Calculate USD cost for a Gemini API call.
-    Returns 0.0 for local Ollama models (always free).
+    Calculate USD cost for an LLM call.
+    Returns 0.0 for all models since JARVIS is completely local.
     """
-    # Ollama / local models are free
-    if not model.startswith("gemini"):
-        return 0.0
-
-    pricing = GEMINI_PRICING.get(model, _DEFAULT_GEMINI_PRICING)
-    ctx_limit = pricing.get("context_limit", 128_000)
-
-    input_rate = (
-        pricing["input_long"] if input_tokens > ctx_limit
-        else pricing["input_short"]
-    )
-    output_rate = pricing["output"]
-
-    cost = (input_tokens / 1_000_000) * input_rate
-    cost += (output_tokens / 1_000_000) * output_rate
-    return cost
+    return 0.0
 
 
 # ---------------------------------------------------------------------------

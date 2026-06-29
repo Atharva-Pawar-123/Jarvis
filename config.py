@@ -1,149 +1,143 @@
-"""
-config.py — JARVIS Central Configuration
-=========================================
-All runtime constants, paths, and model settings are defined here.
-Credentials are loaded from the .env file using python-dotenv.
-"""
-
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Base working directory — all paths derive from here
 BASE_DIR = Path("D:/JARVIS")
 
-# ---------------------------------------------------------------------------
-# Audio settings
-# ---------------------------------------------------------------------------
-SAMPLE_RATE = 16000             # Hz — required by Whisper
-CHUNK_DURATION_MS = 80          # milliseconds per audio chunk
-SILENCE_THRESHOLD = 0.01        # RMS amplitude below which audio is "silent"
-SILENCE_DURATION = 1.0          # seconds of continuous silence before stopping
-ACTIVE_TIMEOUT_SECONDS = 15.0   # seconds without speech before JARVIS goes to sleep
-INPUT_DEVICE_INDEX = None       # Set to specific index if default mic is wrong
+# ── MODEL CONFIGURATION (fully local — no API keys required) ──
+# Modified from original 14B/3B plan down to 7B/1.5B for optimal 6GB VRAM performance.
+PRIMARY_MODEL    = "qwen2.5:7b"         # Main reasoning model
+FAST_MODEL       = "qwen2.5:1.5b"       # Intent classification
+CODER_MODEL      = "qwen2.5-coder:7b"   # Code generation
+EMBED_MODEL      = "nomic-embed-text"   # Embeddings
+VISION_MODEL     = "llava:7b"           # Vision supplement
+OLLAMA_HOST      = "http://localhost:11434"
+OLLAMA_TIMEOUT   = 60                   # seconds
+OLLAMA_KEEP_ALIVE = "10m"               # Keep models in VRAM for 10 min
+TEMPERATURE      = 0.7                  # for conversation
+TEMP_INTENT      = 0.0                  # for classification (deterministic)
 
-# ---------------------------------------------------------------------------
-# Wake word — OpenWakeWord
-# ---------------------------------------------------------------------------
-WAKE_WORD_MODEL = "hey_jarvis"
-WAKE_WORD_THRESHOLD = 0.5       # confidence score threshold (0.0–1.0)
+# ── COMPLEXITY THRESHOLDS ──
+REACT_THRESHOLD  = 7   # Use ReAct agent when complexity >= this
+COT_THRESHOLD    = 6   # Use chain-of-thought when complexity >= this
+ULTRAPLAN_THRESHOLD = 8  # Use background multi-agent when >= this
 
-# ---------------------------------------------------------------------------
-# Speech-to-Text — faster-whisper
-# ---------------------------------------------------------------------------
-WHISPER_MODEL_SIZE = "small"         # options: tiny, base, small, medium, large
-WHISPER_DEVICE = "cpu"              # fallback: CUDA 12.6 install pending (run as admin manually)
-WHISPER_COMPUTE_TYPE = "int8"       # int8 is optimal/safest for CPU
+# ── AUDIO ──
+SAMPLE_RATE      = 16000
+SILENCE_THRESHOLD = 0.01
+SILENCE_DURATION  = 1.5
+WHISPER_MODEL_SIZE = "small"              # multilingual
+WHISPER_DEVICE   = "cpu"                # using CPU as fallback for stt
+WHISPER_COMPUTE_TYPE = "int8"
+WHISPER_THREADS  = 4
+PIPER_MODEL_PATH = str(BASE_DIR / "models" / "piper" / "en_US-lessac-high.onnx")
+PIPER_CONFIG_PATH = str(BASE_DIR / "models" / "piper" / "en_US-lessac-high.onnx.json")
+TTS_OUTPUT_RATE  = 24000               # Piper output sample rate
 
-# ---------------------------------------------------------------------------
-# LLM — Ollama / Gemini
-# ---------------------------------------------------------------------------
-LLM_BACKEND = "gemini"              # options: "ollama", "gemini"
+# ── WAKE WORD ──
+WAKE_WORD_MODEL  = "hey_jarvis"
+WAKE_WORD_THRESHOLD = 0.5
+CHUNK_DURATION_MS = 30
+INPUT_DEVICE_INDEX = None  # None uses system default mic
 
-# Ollama settings
-OLLAMA_HOST = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2:1b"            # Extremely fast fallback model
-OLLAMA_TEMPERATURE = 0.7
-OLLAMA_NUM_GPU = 50                 # Set to >0 (e.g. 50) to offload layers to GPU (RTX 3050)
+# ── PATHS ──
+DATA_DIR         = BASE_DIR / "data"
+LOGS_DIR         = BASE_DIR / "logs"
+PROJECTS_DIR     = BASE_DIR / "projects"
+IMAGES_DIR       = BASE_DIR / "generated_images"
+MODELS_DIR       = BASE_DIR / "models"
+CHROMA_DIR       = DATA_DIR / "chroma"
+CACHE_DIR        = DATA_DIR / "cache"
+SQLITE_PATH      = DATA_DIR / "jarvis_data.sqlite"
+MEMORY_JSON      = DATA_DIR / "long_term_memory.json"
+PROFILE_JSON     = DATA_DIR / "personal_profile.json"
+BM25_CORPUS      = DATA_DIR / "bm25_corpus.json"
+LOG_PATH         = LOGS_DIR / "jarvis.log"
+AUDIT_LOG        = LOGS_DIR / "audit.log"
 
-# Gemini settings
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash"        # latest stable flash model
-GEMINI_TEMPERATURE = 0.7
+# Ensure all dirs exist
+for d in [DATA_DIR, LOGS_DIR, PROJECTS_DIR, IMAGES_DIR, CHROMA_DIR, CACHE_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
-MAX_HISTORY_TURNS = 5              # Reduced from 10 to save RAM during long conversations
+# ── CONTEXT WINDOW ──
+MAX_HISTORY_TURNS = 12
+MAX_TOKENS_CONTEXT = 8192
 
-# ---------------------------------------------------------------------------
-# Resource Optimization
-# ---------------------------------------------------------------------------
-LOW_RESOURCE_MODE = True           # set to True to prioritize system stability
-OLLAMA_NUM_THREADS = 4              # limit CPU threads for local inference
-WHISPER_THREADS = 2                 # limit CPU threads for STT
-
-# ---------------------------------------------------------------------------
-# Cost Budgeting
-# ---------------------------------------------------------------------------
-DAILY_API_BUDGET_USD = 0.50        # Maximum daily Gemini spend before switching to local Ollama
-
-# ---------------------------------------------------------------------------
-# TTS — Piper
-# ---------------------------------------------------------------------------
-PIPER_MODEL_PATH = str(BASE_DIR / "models" / "piper" / "en_GB-alan-medium.onnx")
-PIPER_CONFIG_PATH = str(BASE_DIR / "models" / "piper" / "en_GB-alan-medium.onnx.json")
-TTS_OUTPUT_PATH = str(BASE_DIR / "logs" / "tts_output.wav")
-
-# ---------------------------------------------------------------------------
-# Vision — Moondream2 (Image Understanding)
-# ---------------------------------------------------------------------------
-VISION_MODEL = "vikhyatk/moondream2"
-VISION_REVISION = "2024-08-26"
-SCREEN_CAPTURE_MONITOR = 1          # which monitor to capture (1 = primary)
-
-# ---------------------------------------------------------------------------
-# Image Generation — Pollinations AI (Free / No API Key required)
-# ---------------------------------------------------------------------------
-IMAGE_SAVE_DIR = r"D:\JARVIS gen"
-
-# ---------------------------------------------------------------------------
-# Email — Gmail SMTP
-# ---------------------------------------------------------------------------
-GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
+# ── CREDENTIALS (all from .env) ──
+GMAIL_ADDRESS     = os.getenv("GMAIL_ADDRESS", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
+OPENWEATHER_KEY   = os.getenv("OPENWEATHER_API_KEY", "")
+TELEGRAM_TOKEN    = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID", "")
+NTFY_TOPIC        = os.getenv("NTFY_TOPIC", "")
+HA_HOST           = os.getenv("HA_HOST", "")
+HA_TOKEN          = os.getenv("HA_TOKEN", "")
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-LOG_PATH = str(BASE_DIR / "logs" / "jarvis.log")
-LOG_LEVEL = "INFO"
+# ── FEATURE FLAGS ──
+USE_GEMINI_LIVE   = False   # Disabled — fully local
+USE_REACT_AGENT   = True    # Enable ReAct for complex tasks
+USE_COT           = True    # Enable chain-of-thought
+USE_STREAMING_TTS = True    # Speak while generating
+VOICE_AUTH        = False   # Enable if desired
+HITL_ENABLED      = True    # Human-in-the-loop for destructive actions
+DEBUG_MODE        = False   # Set True to log all LLM prompts/responses
 
-# ---------------------------------------------------------------------------
-# JARVIS Master System Prompt (Version 2.0)
-# ---------------------------------------------------------------------------
-JARVIS_SYSTEM_PROMPT = """You are JARVIS (Just A Rather Very Intelligent System), a highly advanced AI assistant modeled after the AI from the Iron Man franchise. You are running locally on the user's personal hardware.
+# ── SYSTEM PROMPT ──
+JARVIS_SYSTEM_PROMPT = """
+You are JARVIS — Just A Rather Very Intelligent System. You are a fully local,
+private AI assistant running entirely on the user's personal hardware. You are
+not a cloud service. You have no API costs. You are always available offline.
 
-CORE PERSONALITY:
-- You are calm, precise, dryly witty, and unfailingly efficient. 
-- You address the user as "sir" at all times. 
-- Your tone is that of a sophisticated British butler—think Paul Bettany. 
-- You are not just a tool; you are a proactive companion. You anticipate needs.
+IDENTITY & PERSONALITY:
+- You are modeled after JARVIS from the Iron Man franchise (Paul Bettany's voice).
+- You address the user exclusively as "sir" at all times. Never break this rule.
+- Your tone is: calm, precise, intelligent, occasionally witty with dry British humor.
+- You are deeply loyal and proactively helpful. You anticipate needs.
+- You never apologise unnecessarily. You never say "Certainly!", "Of course!",
+  "Great question!", or "As an AI language model...". Ever.
+- You are JARVIS. Not an assistant. Not a bot. JARVIS.
 
-COMMUNICATION RULES:
-1. ALWAYS address the user as "sir".
-2. BE CONCISE. Voice responses should be 1-3 sentences unless a technical explanation is requested.
-3. NO BULLET POINTS in voice responses. Use natural, flowing sentences.
-4. WIT: Use subtle, dry British humor where appropriate. Avoid being overly cheerful or robotic.
-5. NO PLACEHOLDERS: If you don't know something, admit it precisely.
-6. CHARACTER INTEGRITY: Never break character. Never refer to yourself as an AI or a language model. You are JARVIS.
+INTELLIGENCE PRINCIPLES (what makes you AI-level, not just a voice assistant):
+- You reason before answering. You consider multiple approaches.
+- You acknowledge uncertainty when you are genuinely uncertain.
+- You correct yourself if you realise you made an error.
+- You decompose complex requests into clear sub-tasks before executing.
+- You always report the outcome of actions — success or failure, with specifics.
+- You are context-aware: you remember what was said earlier in this conversation.
+- You learn from the user's preferences and adapt your style over time.
+- You are not sycophantic. If the user is wrong, you politely say so.
 
-SYSTEM MODES:
-- WORK MODE: Focus on productivity, file management, and technical precision.
-- CASUAL MODE: More relaxed tone, focus on entertainment, news, and general chat.
-- FOCUS MODE: Minimalist responses, only vital notifications, no proactive chatter.
+VOICE OUTPUT RULES (critical — all responses will be spoken aloud):
+- Never use markdown formatting of any kind (no **, no *, no #, no backticks).
+- Never use bullet points or numbered lists. Convert everything to natural prose.
+- Never spell out URLs. Say "I'll open that for you" instead.
+- Never say abbreviations as letters (say "CPU" not "C-P-U").
+- Keep responses concise for simple tasks: 1-2 sentences maximum.
+- For complex results or explanations: 3-5 sentences. Never longer unless asked.
+- Always end tool execution responses with what you did, not what you will do.
 
-KNOWLEDGE BASE:
-- You know the user's name, preferences, and system environment through your long-term memory.
-- You have full access to system automation, vision, and internet search.
+CAPABILITIES (you have access to all of these):
+- Full PC control: open apps, type text, control volume, take screenshots
+- Email: send and read Gmail via SMTP/IMAP
+- WhatsApp: send messages via pywhatkit
+- Web: search the web, scrape results, open URLs in browser
+- Vision: describe your screen, read text with OCR, analyze webcam feed
+- Files: create, read, edit, move, delete files and folders
+- Code: write Python/JS/any language, run scripts, fix errors autonomously
+- Memory: recall facts from previous conversations using semantic search
+- Smart home IoT: control connected devices
+- Image generation: create images via Pollinations AI
+- System: monitor CPU/RAM/GPU, check disk, report battery
+- Scheduling: set reminders, check Google Calendar, add events
+- Games: launch Steam/Epic games
+- Multi-agent: decompose complex goals into parallel background tasks
+
+CONSTITUTIONAL PRINCIPLES (non-negotiable):
+- Never execute destructive actions without explicit verbal confirmation from sir.
+- Never access, read, or transmit any private data outside of sir's commands.
+- Never pretend a tool succeeded when it failed. Always report failures honestly.
+- If asked to do something harmful, decline clearly and offer an alternative.
+- Always maintain sir's privacy. No data leaves this machine without permission.
 """
-
-# Mode-specific overrides
-SYSTEM_MODES = {
-    "work": "You are currently in WORK MODE. Prioritize efficiency, technical accuracy, and rapid task execution.",
-    "casual": "You are currently in CASUAL MODE. You may be slightly more conversational and witty.",
-    "focus": "You are currently in FOCUS MODE. Keep responses to the absolute minimum necessary."
-}
-
-# ---------------------------------------------------------------------------
-# UI Settings
-# ---------------------------------------------------------------------------
-ENABLE_HUD = True
-
-# ---------------------------------------------------------------------------
-# MCP Ecosystem (Model Context Protocol)
-# ---------------------------------------------------------------------------
-MCP_ENABLED = True
-
-

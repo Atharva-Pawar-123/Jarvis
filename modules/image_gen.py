@@ -25,7 +25,7 @@ class ImageGenerationEngine:
     """
 
     def __init__(self) -> None:
-        self.save_dir = Path(config.IMAGE_SAVE_DIR)
+        self.save_dir = Path(config.IMAGES_DIR)
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self.api_url = "https://image.pollinations.ai/prompt/{prompt}"
         # Local AUTOMATIC1111 endpoint

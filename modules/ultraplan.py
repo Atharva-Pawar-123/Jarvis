@@ -1,10 +1,17 @@
 import logging
 import threading
 import queue
-import time
-from typing import Any, Callable
+from typing import Any, Callable, List
+from pydantic import BaseModel, Field
+import instructor
+from openai import OpenAI
+
+import config
 
 logger = logging.getLogger(__name__)
+
+class TaskPlan(BaseModel):
+    sub_tasks: List[str] = Field(..., description="A list of distinct, independent sub-tasks to accomplish the goal.")
 
 class WorkerAgent(threading.Thread):
     """A background worker agent that can execute a specific sub-task."""
@@ -25,7 +32,8 @@ class WorkerAgent(threading.Thread):
         ]
         
         try:
-            result = self.llm.generate(messages, stream=False)
+            # We use the blocking generation method since workers run in background
+            result = self.llm._generate_blocking(messages, self.llm.PRIMARY_MODEL)
             logger.info(f"[Worker {self.task_id}] Completed task.")
             self.result_queue.put({"task_id": self.task_id, "status": "success", "result": result})
         except Exception as e:
@@ -41,6 +49,15 @@ class UltraPlanCoordinator:
         self.llm = llm_engine
         self.tts_callback = tts_callback
         self.hud_callback = hud_callback
+        
+        # Initialize instructor for guaranteed JSON output from Ollama
+        self.instructor_client = instructor.from_openai(
+            OpenAI(
+                base_url=f"{config.OLLAMA_HOST}/v1",
+                api_key="ollama"
+            ),
+            mode=instructor.Mode.JSON
+        )
 
     def execute_plan_async(self, user_query: str):
         """Spawns a background thread so the main JARVIS loop isn't blocked."""
@@ -53,26 +70,28 @@ class UltraPlanCoordinator:
     def _run_multi_agent_swarm(self, query: str):
         self._notify("Sir, I am spinning up the Multi-Agent Orchestrator. This may take a moment.")
         try:
-            # Step 1: Breakdown the goal
+            # Step 1: Breakdown the goal using instructor for strict JSON compliance
             plan_prompt = (
                 "You are an Orchestrator AI. The user has given you a complex goal. "
-                "Break this goal down into 1 to 3 distinct sub-tasks that can be executed independently in parallel. "
-                "Output ONLY the sub-tasks, one per line, starting with a dash (-)."
+                "Break this goal down into 1 to 3 distinct sub-tasks that can be executed independently in parallel."
                 f"\n\nUser Goal: {query}"
             )
             
-            plan_response = self.llm.generate([{"role": "user", "content": plan_prompt}], stream=False)
-            
-            # Parse tasks
-            tasks = []
-            if isinstance(plan_response, str):
-                for line in plan_response.split('\n'):
-                    line = line.strip()
-                    if line.startswith('-'):
-                        tasks.append(line.lstrip('- ').strip())
-            
+            try:
+                plan = self.instructor_client.chat.completions.create(
+                    model=self.llm.PRIMARY_MODEL,
+                    response_model=TaskPlan,
+                    messages=[
+                        {"role": "user", "content": plan_prompt}
+                    ]
+                )
+                tasks = plan.sub_tasks
+            except Exception as e:
+                logger.error(f"Instructor JSON parsing failed: {e}")
+                tasks = [query] # Fallback to single task if instructor fails
+                
             if not tasks:
-                tasks = [query] # Fallback to single task
+                tasks = [query]
                 
             logger.info(f"Orchestrator identified {len(tasks)} sub-tasks: {tasks}")
             
@@ -107,7 +126,7 @@ class UltraPlanCoordinator:
                 {"role": "user", "content": synthesis_prompt}
             ]
             
-            final_result = self.llm.generate(synthesis_messages, stream=False)
+            final_result = self.llm._generate_blocking(synthesis_messages, self.llm.PRIMARY_MODEL)
 
             # Complete
             self._notify("Sir, the Multi-Agent Orchestrator session is complete.")
@@ -120,7 +139,7 @@ class UltraPlanCoordinator:
     def _notify(self, message: str):
         logger.info(f"ULTRAPLAN: {message}")
         if self.tts_callback:
-            self.tts_callback(message)
+            self.tts_callback(message, blocking=False)
             
     def _notify_final_result(self, result: str):
         logger.info(f"ULTRAPLAN RESULT:\n{result}")
@@ -130,5 +149,5 @@ class UltraPlanCoordinator:
                 "result": result
             })
         if self.tts_callback:
-            self.tts_callback("I have sent the comprehensive results to your HUD and terminal, sir.")
+            self.tts_callback("I have sent the comprehensive results to your HUD and terminal, sir.", blocking=True)
             print(f"\n[ULTRAPLAN RESULT]\n{result}\n")

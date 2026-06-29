@@ -162,7 +162,7 @@ class SpeechToText:
         """
         def _run_transcription(model: WhisperModel) -> str:
             # Greedy decoding (beam_size=1) is significantly faster and uses less RAM
-            beam = 1 if config.LOW_RESOURCE_MODE else 3  # beam=1 for speed, 3 for accuracy
+            beam = 1 # Hardware optimized for 6GB VRAM
             segments, info = model.transcribe(
                 audio,
                 beam_size=beam,

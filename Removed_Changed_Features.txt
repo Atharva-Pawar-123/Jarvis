@@ -1,0 +1,32 @@
+JARVIS Local AI Upgrade - Removed & Changed Features
+======================================================
+
+Based on your system hardware (NVIDIA RTX 3050 6GB Laptop GPU and 16GB RAM) and your specific instructions, here is the detailed list of everything being removed, kept, and modified during this upgrade.
+
+1. FEATURES TO BE REMOVED
+-------------------------
+- Buddy Feature (modules/buddy.py): The digital Tamagotchi companion (Pebblecrab, etc.) will be removed to free up token context and system resources for the local reasoning models.
+- Cloud API Modules: Google Generative AI (Gemini) dependencies and API connections. JARVIS will no longer require an internet connection to think.
+- Legacy Intent Dispatcher: The old if/else based intent system in `main.py` is being removed in favor of the ReAct Agentic loop and DualModelIntentClassifier.
+
+2. FEATURES TO BE KEPT EXACTLY AS IS
+------------------------------------
+- JARVIS HUD Dashboard: As explicitly requested, the visual Iron Man style dashboard and its related websocket controllers will remain completely unchanged and functional.
+
+3. HARDWARE-OPTIMIZED CHANGES
+-----------------------------
+Your NVIDIA RTX 3050 has 6GB of VRAM. Running a 14B parameter model alongside a 3B model, TTS, and STT simultaneously will cause severe Out-Of-Memory (OOM) crashes and extreme lag (offloading to system RAM). 
+
+To ensure JARVIS runs flawlessly ("STRICTLY MAKE NO MISTAKES"), the local model stack is being safely downscaled to match your 6GB VRAM while retaining all reasoning capabilities:
+- Primary Brain: Changed from `qwen2.5:14b` to `qwen2.5:7b` (fits in VRAM).
+- Intent Classifier: Changed from `qwen2.5:3b` to `qwen2.5:1.5b` (extremely fast, very low VRAM).
+- Code Engine: Remains `qwen2.5-coder:7b`.
+- Embeddings: Remains `nomic-embed-text`.
+- Vision: Remains `llava:7b` (lazy-loaded to conserve memory).
+
+4. NEW ARCHITECTURAL ADDITIONS
+------------------------------
+- Hybrid RAG Memory: Adding BM25 keyword search alongside ChromaDB semantic search.
+- Streaming TTS: JARVIS will now speak instantly as the LLM generates tokens, reducing response time from seconds to ~600ms.
+- ReAct Agentic Loop: JARVIS will autonomously decide when to use tools, analyze output, and chain multiple tools together for complex queries.
+- UltraPlan Background Agents: Converted to use local Ollama models instead of Gemini.
