@@ -1,309 +1,120 @@
-"""
-modules/intent.py — JARVIS Intent Classifier
-============================================
-Uses Ollama (Mistral 7B at low temperature) to classify the user's
-spoken command into one of 16 predefined intents and extract relevant
-entities. Returns a structured dict compatible with main.py's dispatcher.
-Falls back to "chat" intent if JSON parsing fails.
-"""
-
 import json
 import logging
-import re
-from typing import Dict, Any
+import time
 
-import ollama as ollama_client
-
-import config
-from modules.utils import robust_json_parse
-
-logger = logging.getLogger(__name__)
-
-# The complete list of supported intents
-INTENTS = [
-    "chat",             # general conversation — default
-    "send_email",       # send an email
-    "send_whatsapp",    # send a WhatsApp message
-    "describe_screen",  # describe what's on screen
-    "answer_screen",    # answer a question about the screen
-    "describe_webcam",  # describe what the webcam sees
-    "take_screenshot",  # take and save a screenshot
-    "type_text",        # type something on screen
-    "open_app",         # open an application
-    "volume_up",        # increase system volume
-    "volume_down",      # decrease system volume
-    "mute",             # mute/unmute audio
-    "tell_time",        # tell current time
-    "tell_date",        # tell current date
-    "clear_memory",     # clear conversation history
-    "shutdown",         # shut down JARVIS
-    "generate_image",   # generate an image from a description
-    "speak_faster",     # increase TTS voice speed
-    "speak_slower",     # decrease TTS voice speed
-    "copy_clipboard",   # copy text to clipboard
-    "paste_clipboard",  # paste text from clipboard
-    "read_clipboard",   # read clipboard contents aloud
-    "clear_clipboard",  # empty clipboard
-    "create_file",      # create a new file
-    "create_folder",    # create a new folder
-    "move_file",        # move a file to a new path
-    "rename_file",      # rename a file
-    "delete_file",      # delete a file
-    "delete_folder",    # delete a folder
-    "list_folder",      # list contents of a folder
-    "web_search",       # get quick answer from the web
-    "open_search",      # open search results in a browser
-    "system_status",    # report CPU, RAM, and battery info
-    "extract_text",     # OCR text from screen
-    "read_document",    # read PDF or Word document
-    "show_gallery",     # show generated image gallery
-    "enroll_voice",     # register user voice for authentication
-    "read_emails",      # check and read recent emails
-    "ultraplan",        # start deep thinking multi-agent session
-    "get_weather",      # check current weather
-    "set_reminder",     # schedule a voice reminder
-    "get_news",         # fetch top news headlines
-    "open_website",     # open a specific URL in browser
-    "search_browser",   # search for something in browser
-    "execute_powershell", # run a powershell command
-    "start_routine",    # start a predefined routine
-    "control_iot",      # control smart home devices
-    "get_mood",         # detect user mood/emotion
-    "switch_mode",      # switch between Work/Casual/Focus modes
-    "system_report",    # report performance analytics
-    "open_dashboard",   # activate the web visual dashboard/HUD
-    "close_dashboard",  # deactivate the web visual dashboard/HUD
-    "get_location",     # get current geographic location
-    "api_cost",         # report Gemini API token usage and estimated USD cost
-    "search_codebase",  # search the JARVIS codebase for a query
-    "open_incognito",   # open a private/incognito browser window
-    "mute_toggle",      # mute or unmute the microphone
-    "use_mcp_tool",     # use a connected MCP tool (e.g., github, sqlite, fetch)
-]
-
-# Intents that require voice authentication/permission
-PROTECTED_INTENTS = [
-    "shutdown",
-    "delete_file",
-    "delete_folder",
-    "move_file",
-    "rename_file",
-    "clear_memory",
-    "send_email",
-    "send_whatsapp",
-    "execute_powershell",
-]
-
-# Prompt template for intent classification
-_CLASSIFY_PROMPT = """You are an intent classifier for a voice assistant. Classify the user's message into EXACTLY one of these intents:
-
-{intents}
-
-Extract relevant entities from the message. Always return ONLY a valid JSON object with NO extra text, NO explanation, NO markdown, in EXACTLY this format:
-
-{
-  "intent": "<intent_name>",
-  "entities": {
-    "query": "<search query text>",
-    "app_name": "<app to open>",
-    ...
-  }
-}
-
-EXAMPLES:
-User: "Search for SpaceX on Google"
-Response: {"intent": "web_search", "entities": {"query": "SpaceX"}}
-
-User: "Open Chrome"
-Response: {"intent": "open_app", "entities": {"app_name": "chrome"}}
-
-User: "Tell me the weather in London"
-Response: {"intent": "get_weather", "entities": {"location": "London"}}
-
-User: "What are your features?"
-Response: {"intent": "chat", "entities": {}}
-
-User: "Open the dashboard"
-Response: {"intent": "open_dashboard", "entities": {}}
-
-User: "Turn off the visual interface"
-Response: {"intent": "close_dashboard", "entities": {}}
-
-User: "kill dashboard"
-Response: {"intent": "close_dashboard", "entities": {}}
-
-User: "Who are you?"
-Response: {"intent": "chat", "entities": {}}
-
-User: "Where am I right now?"
-Response: {"intent": "get_location", "entities": {}}
-
-User message: "{user_message}"
-Recent Context: "{context}"
-
-Respond with ONLY the JSON object: (Default to "chat" for general talk)"""
-
-
-class IntentClassifier:
+class DualModelIntentClassifier:
     """
-    Classifies user voice commands into structured intents with entities.
-
-    Uses Ollama with very low temperature (0.1) for deterministic,
-    consistent classification. Falls back to the "chat" intent on any
-    JSON parse error to ensure the system never fails catastrophically.
+    Routes queries to fast model for clear intents, or primary model for ambiguous ones.
+    Must complete fast classification in < 200ms.
     """
-
-    def __init__(self) -> None:
-        """
-        Initialize the intent classifier with Ollama client.
-        """
-        self._host = config.OLLAMA_HOST
-        self._model = config.OLLAMA_MODEL
-        self._backend = config.LLM_BACKEND
-        self._api_key = config.GEMINI_API_KEY
-        self.is_degraded = False # Track if we fell back to Ollama
+    
+    INTENTS = [
+        "chat", "clear_memory", "shutdown",
+        "open_app", "close_app", "volume_up", "volume_down", "mute", 
+        "take_screenshot", "type_text", "clipboard_read", "clipboard_write", "system_status",
+        "create_file", "read_file", "edit_file", "delete_file", "move_file", "list_folder", 
+        "write_code", "run_file", "fix_code",
+        "send_email", "read_email", "send_whatsapp", "send_telegram",
+        "web_search", "open_url", "open_incognito", "browser_automate",
+        "describe_screen", "read_screen_text", "describe_webcam",
+        "search_memory", "search_documents", "ingest_document",
+        "set_reminder", "todays_schedule", "add_calendar_event",
+        "generate_image", "open_gallery", "play_music", "open_game",
+        "control_iot",
+        "complex_task",
+        "open_dashboard", "kill_dashboard", "tell_time", "tell_date", "weather", "get_news"
+    ]
+    
+    def __init__(self, llm_engine):
+        self.llm = llm_engine
+        self.cache = {}
         
-        logger.info(
-            f"IntentClassifier initialized — backend: {self._backend}, "
-            f"model: {self._model if self._backend == 'ollama' else config.GEMINI_MODEL}"
+        # System prompt under 200 tokens for maximum speed
+        intent_list_str = ", ".join(self.INTENTS)
+        self.system_prompt = (
+            "Classify the user's request. Return ONLY a JSON object with keys "
+            f"'intent' (one of: {intent_list_str}) and 'entities' "
+            "(keys: text, to, subject, app_name, file_path, url, query, code_lang, game_name, "
+            "iot_device, iot_action, time, date, city, reminder_msg, duration, volume_level, song, topic, confirm). "
+            "No markdown. No explanation. Pure JSON only."
         )
 
-    def classify(self, text: str, context: str = "") -> Dict[str, Any]:
-        """
-        Classify user input text into an intent with extracted entities.
-
-        Sends a structured prompt to Ollama requesting JSON output only.
-        If the model returns non-JSON or malformed JSON, falls back to
-        {intent: "chat", entities: {}}.
-
-        Args:
-            text (str): The user's spoken or typed command.
-            context (str, optional): Recent conversation history to resolve pronouns/context.
-
-        Returns:
-            dict: A dict with keys:
-                - "intent" (str): One of the INTENTS values.
-                - "entities" (dict): Extracted entities with keys:
-                  to, subject, body, to_name, text, app_name, question, count.
-                  All keys always present; unused ones are empty strings or 1 for count.
-        """
-        fallback = {"intent": "chat", "entities": {}}
-
-        if not text or not text.strip():
-            return fallback
-            
-        # Fast heuristic bypass for common commands
-        text_lower = text.strip().lower()
-        if "open dashboard" in text_lower or "open the dashboard" in text_lower:
-            return {"intent": "open_dashboard", "entities": {}}
-        if "close dashboard" in text_lower or "close the dashboard" in text_lower:
-            return {"intent": "close_dashboard", "entities": {}}
-
-        intents_str = "\n".join(f"  - {intent}" for intent in INTENTS)
-        ctx_str = context if context else "No recent context."
-        prompt = _CLASSIFY_PROMPT.replace("{intents}", intents_str).replace("{user_message}", text.strip()).replace("{context}", ctx_str)
-
+    def classify(self, user_text: str, conversation_history: list = None) -> dict:
+        # Step 1: Cache check (3 min expiration)
+        now = time.time()
+        if user_text in self.cache:
+            entry, timestamp = self.cache[user_text]
+            if now - timestamp < 180:
+                return entry
+                
+        messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": user_text}]
+        
+        # Step 2: Try fast model
         try:
-            raw = ""
-            if self._backend == "gemini" and self._api_key:
-                try:
-                    from google import genai
-                    client = genai.Client(api_key=self._api_key)
-                    response = client.models.generate_content(
-                        model=config.GEMINI_MODEL,
-                        contents=prompt,
-                        config={"temperature": 0.1}
-                    )
-                    raw = response.text.strip()
-                except Exception as e:
-                    err_msg = str(e).replace('\n', ' ')
-                    logger.warning(f"Gemini intent classification failed ({err_msg[:150]}). Falling back to local Ollama.")
-                    self.is_degraded = True
-                    # Fallback for this call. Let's do fallback for this call.
-                    
-            if not raw:
-                # Use Ollama as primary if config says so, or as fallback if Gemini failed
-                try:
-                    client = ollama_client.Client(host=self._host)
-                    response = client.chat(
-                        model=self._model,
-                        messages=[{"role": "user", "content": prompt}],
-                        options={
-                            "temperature": 0.1,
-                            "num_gpu": getattr(config, "OLLAMA_NUM_GPU", 0)
-                        },
-                    )
-                    raw = response["message"]["content"].strip()
-                except Exception as ollama_exc:
-                    logger.warning(
-                        f"Ollama intent classification also failed: {ollama_exc}. "
-                        "Returning 'chat' fallback intent."
-                    )
-                    return fallback
+            # Note: temperature is set in LLMEngine options or we just rely on fast deterministic
+            res = self.llm._generate_blocking(messages, self.llm.FAST_MODEL)
+            result = self._parse_json(res)
+        except Exception as e:
+            logging.warning(f"Fast intent classification failed/timed out: {e}. Falling back to Primary.")
+            result = None
             
-            logger.debug(f"Intent classifier raw response: {raw}")
+        # Step 3: Fallback to primary
+        if not result:
+            try:
+                res = self.llm._generate_blocking(messages, self.llm.PRIMARY_MODEL)
+                result = self._parse_json(res)
+            except Exception as e:
+                logging.error(f"Primary classification also failed: {e}")
+                result = {"intent": "chat", "entities": {}}
+                
+        # Step 4: Validate and Fill Schema
+        if not result or not isinstance(result, dict) or "intent" not in result:
+            result = {"intent": "chat", "entities": {}}
+            
+        if result["intent"] not in self.INTENTS:
+            result["intent"] = "chat"
+            
+        entities = result.get("entities", {})
+        if not isinstance(entities, dict):
+            entities = {}
+            
+        # Ensure all keys exist with empty strings if missing
+        schema_keys = ["text", "to", "subject", "app_name", "file_path", "url", "query", 
+                       "code_lang", "game_name", "iot_device", "iot_action", "time", "date", 
+                       "city", "reminder_msg", "duration", "volume_level", "song", "topic", "confirm"]
+                       
+        for key in schema_keys:
+            if key not in entities or entities[key] is None:
+                entities[key] = ""
+                
+        result["entities"] = entities
+        
+        # Step 5: Cache
+        self.cache[user_text] = (result, now)
+        
+        return result
 
-            # Extract JSON from the response (handles cases where model
-            # adds a tiny bit of preamble despite instructions)
-            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-            if not json_match:
-                logger.warning(
-                    f"No JSON found in intent classifier response: {raw[:200]}"
-                )
-                return fallback
-
-            parsed = robust_json_parse(json_match.group())
-
-            # Validate and normalize the result
-            intent = parsed.get("intent", "chat")
-            if intent not in INTENTS:
-                logger.warning(
-                    f"Unknown intent '{intent}' returned — defaulting to 'chat'."
-                )
-                intent = "chat"
-
-            entities = parsed.get("entities", {})
-            # Ensure all expected entity keys are present
-            full_entities = {
-                "to": entities.get("to", ""),
-                "subject": entities.get("subject", ""),
-                "body": entities.get("body", ""),
-                "to_name": entities.get("to_name", ""),
-                "text": entities.get("text", ""),
-                "app_name": entities.get("app_name", ""),
-                "question": entities.get("question", ""),
-                "prompt_text": entities.get("prompt_text", ""),
-                "source_path": entities.get("source_path", ""),
-                "destination_path": entities.get("destination_path", ""),
-                "file_name": entities.get("file_name", ""),
-                "folder_name": entities.get("folder_name", ""),
-                "query": entities.get("query", ""),
-                "file_path": entities.get("file_path", ""),
-                "location": entities.get("location", ""),
-                "time": entities.get("time", ""),
-                "url": entities.get("url", ""),
-                "command": entities.get("command", ""),
-                "routine_name": entities.get("routine_name", ""),
-                "iot_device": entities.get("iot_device", ""),
-                "iot_action": entities.get("iot_action", ""),
-                "mode": entities.get("mode", ""),
-                "count": entities.get("count", 1)
-            }
-
-            result = {"intent": intent, "entities": full_entities}
-            logger.info(
-                f"Intent: '{intent}' | Entities: {full_entities}"
-            )
-            return result
-
-        except json.JSONDecodeError as exc:
-            logger.warning(f"JSON parse error in intent classifier: {exc}")
-            return fallback
-        except Exception as exc:
-            logger.error(
-                f"Intent classification failed: {exc}", exc_info=True
-            )
-            return fallback
-
-
-
+    def _parse_json(self, text: str) -> dict:
+        """Robustly extract and parse JSON from the LLM output."""
+        # Strip markdown fences if present
+        text = text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+            
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Fallback regex extraction if it wrote prose before JSON
+            import re
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    return None
+            return None
