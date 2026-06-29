@@ -32,9 +32,9 @@ WHISPER_MODEL_SIZE = "small"              # multilingual
 WHISPER_DEVICE   = "cpu"                # using CPU as fallback for stt
 WHISPER_COMPUTE_TYPE = "int8"
 WHISPER_THREADS  = 4
-PIPER_MODEL_PATH = str(BASE_DIR / "models" / "piper" / "en_US-lessac-high.onnx")
-PIPER_CONFIG_PATH = str(BASE_DIR / "models" / "piper" / "en_US-lessac-high.onnx.json")
-TTS_OUTPUT_RATE  = 24000               # Piper output sample rate
+PIPER_MODEL_PATH = str(BASE_DIR / "models" / "piper" / "en_GB-alan-medium.onnx")
+PIPER_CONFIG_PATH = str(BASE_DIR / "models" / "piper" / "en_GB-alan-medium.onnx.json")
+TTS_OUTPUT_RATE  = 22050               # Piper en_GB-alan-medium sample rate
 
 # ── WAKE WORD ──
 WAKE_WORD_MODEL  = "hey_jarvis"
