@@ -1,0 +1,32 @@
+# Python / Virtual Environment
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+
+# Environment Variables & Secrets
+.env
+mcp.json
+
+# Databases
+*.sqlite
+*.sqlite3
+*.db
+jarvis_data.sqlite
+
+# Logs & Output
+logs/
+*.log
+generated_images/
+scratch/
+
+# Data & Models
+data/
+models/
+
+# OS / Editor
+.vscode/
+.DS_Store
+Thumbs.db
