@@ -26,7 +26,7 @@ ULTRAPLAN_THRESHOLD = 8  # Use background multi-agent when >= this
 
 # ── AUDIO ──
 SAMPLE_RATE      = 16000
-SILENCE_THRESHOLD = 0.01
+SILENCE_THRESHOLD = 0.03
 SILENCE_DURATION  = 1.5
 WHISPER_MODEL_SIZE = "small"              # multilingual
 WHISPER_DEVICE   = "cpu"                # using CPU as fallback for stt
