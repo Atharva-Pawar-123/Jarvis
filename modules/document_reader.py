@@ -116,6 +116,14 @@ class DocumentReader:
         if not text or not text.strip():
             return []
 
+        # Guard against infinite loop: overlap must be less than chunk_size
+        if chunk_size <= 0:
+            chunk_size = 1500
+        if overlap < 0:
+            overlap = 0
+        if overlap >= chunk_size:
+            overlap = chunk_size // 4  # safe default: 25% overlap
+
         # Split by paragraphs first to try to keep semantic boundaries
         paragraphs = text.split('\n\n')
         chunks = []

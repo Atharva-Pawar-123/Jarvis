@@ -139,6 +139,38 @@ class AutomationEngine:
             logger.error(f"open_app failed for '{app_name}': {exc}", exc_info=True)
             return f"I was unable to open {app_name}, sir."
 
+    def close_app(self, app_name: str) -> str:
+        """
+        Close an application by name.
+        """
+        if not app_name or not app_name.strip():
+            return "Please tell me which application to close, sir."
+
+        app_lower = app_name.strip().lower()
+
+        executable = None
+        for key, path in self._APP_MAP.items():
+            if app_lower in key or key in app_lower:
+                executable = os.path.basename(path)
+                break
+
+        if not executable:
+            executable = app_name.strip()
+            if not executable.endswith(".exe"):
+                executable += ".exe"
+
+        try:
+            import subprocess
+            subprocess.run(
+                ["taskkill", "/f", "/im", executable],
+                capture_output=True, text=True, timeout=10
+            )
+            logger.info(f"Closed app: {executable}")
+            return f"Closing {app_name}, sir."
+        except Exception as exc:
+            logger.error(f"close_app failed for '{app_name}': {exc}", exc_info=True)
+            return f"I was unable to close {app_name}, sir."
+
     def take_screenshot(self, save_path: Optional[str] = None) -> str:
         """
         Take a screenshot and save it to disk.
@@ -260,15 +292,28 @@ class AutomationEngine:
     # -----------------------------------------------------------------------
     # File Operations
     # -----------------------------------------------------------------------
-    def create_file(self, path: str) -> str:
+    def create_file(self, path: str, content: str = "") -> str:
         try:
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.touch(exist_ok=True)
+            p.write_text(content, encoding="utf-8")
             return f"File created at {p.name}, sir."
         except Exception as exc:
             logger.error(f"create_file failed: {exc}")
             return "I could not create the file, sir."
+
+    def read_file(self, path: str) -> str:
+        try:
+            p = Path(path)
+            if not p.is_file():
+                return f"I could not find the file {p.name}, sir."
+            content = p.read_text(encoding="utf-8")
+            if len(content) > 500:
+                return f"The file {p.name} contains {len(content)} characters. Here is the beginning: {content[:500]}..."
+            return f"The file {p.name} contains: {content}"
+        except Exception as exc:
+            logger.error(f"read_file failed: {exc}")
+            return "I could not read the file, sir."
 
     def create_folder(self, path: str) -> str:
         try:

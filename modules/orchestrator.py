@@ -4,7 +4,7 @@ import queue
 import time
 from typing import List, Dict, Any
 
-from modules.llm import LLMEngine
+from modules.llm import IntelligentLLMEngine as LLMEngine
 from modules.memory import ConversationMemory
 
 logger = logging.getLogger(__name__)

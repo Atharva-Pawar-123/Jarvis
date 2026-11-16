@@ -8,7 +8,8 @@ and webcam capture (OpenCV).
 """
 
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import torch
 from PIL import Image
@@ -132,8 +133,10 @@ class VisionEngine:
             logger.warning("No webcam found at index 0.")
             return None
 
-        ret, frame = cap.read()
-        cap.release()
+        try:
+            ret, frame = cap.read()
+        finally:
+            cap.release()
 
         if not ret or frame is None:
             logger.warning("Webcam capture returned no frame.")
@@ -169,18 +172,20 @@ class VisionEngine:
             
         return image
 
-    def describe_image(self, image: Image.Image) -> str:
+    def describe_image(self, image: Union[Image.Image, str, Path]) -> str:
         """
         Generate a natural language description of a given image.
 
         Args:
-            image (PIL.Image.Image): The image to describe.
+            image (PIL.Image.Image or str or Path): The image or file path to describe.
 
         Returns:
             str: A sentence or two describing what is in the image.
         """
         self._ensure_loaded()
         try:
+            if isinstance(image, (str, Path)):
+                image = Image.open(image)
             image = self._resize_image(image)
             enc_image = self._model.encode_image(image)
             description = self._model.answer_question(
@@ -194,12 +199,12 @@ class VisionEngine:
             logger.error(f"Image description failed: {exc}", exc_info=True)
             return "I was unable to analyze the image, sir."
 
-    def answer_about_image(self, image: Image.Image, question: str) -> str:
+    def answer_about_image(self, image: Union[Image.Image, str, Path], question: str) -> str:
         """
         Answer a question about a given image using visual question answering.
 
         Args:
-            image (PIL.Image.Image): The image to query.
+            image (PIL.Image.Image or str or Path): The image or file path to query.
             question (str): A natural language question about the image.
 
         Returns:
@@ -207,6 +212,8 @@ class VisionEngine:
         """
         self._ensure_loaded()
         try:
+            if isinstance(image, (str, Path)):
+                image = Image.open(image)
             image = self._resize_image(image)
             enc_image = self._model.encode_image(image)
             answer = self._model.answer_question(

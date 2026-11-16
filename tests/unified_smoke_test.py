@@ -6,8 +6,8 @@ def smoke_test():
     print("JARVIS 2.0 UNIFIED SMOKE TEST (Sprints 1-6)")
     
     # Sprint 1
-    from modules.llm import LLMEngine
-    from modules.intent import IntentClassifier
+    from modules.llm import IntelligentLLMEngine as LLMEngine
+    from modules.intent import DualModelIntentClassifier as IntentClassifier
     print("[OK] Sprint 1: LLM & Intent logic verified.")
 
     # Sprint 2
@@ -26,7 +26,7 @@ def smoke_test():
     print("[OK] Sprint 4: Personality & UI logic verified.")
 
     # Sprint 5
-    from modules.long_term_memory import LongTermMemory
+    from modules.long_term_memory import HybridRAGMemory as LongTermMemory
     from modules.browser import BrowserController
     print("[OK] Sprint 5: Long-Term Memory & Web logic verified.")
 

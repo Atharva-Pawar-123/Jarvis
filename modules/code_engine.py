@@ -8,8 +8,10 @@ in a controlled subprocess, and captures stdout/stderr for self-correction.
 import logging
 import re
 import subprocess
+import sys
 import tempfile
 import os
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -36,8 +38,8 @@ class CodeEngine:
         if not code:
             return {"success": False, "output": "No code provided to execute.", "error": "Empty code."}
 
-        # Write to a temporary file
-        script_path = self.temp_dir / "temp_exec.py"
+        # Write to a uniquely-named temporary file to avoid race conditions
+        script_path = self.temp_dir / f"exec_{uuid.uuid4().hex[:8]}.py"
         try:
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
@@ -49,7 +51,7 @@ class CodeEngine:
         try:
             logger.info("Executing generated code in sandbox...")
             result = subprocess.run(
-                ["python", str(script_path)],
+                [sys.executable, str(script_path)],
                 capture_output=True,
                 text=True,
                 timeout=self.execution_timeout

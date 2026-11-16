@@ -64,7 +64,7 @@ class HybridRAGMemory:
 
     def add_fact(self, fact: str, metadata: dict = None):
         """Store a fact via semantic and keyword memory."""
-        metadata = metadata or {}
+        metadata = metadata or {"source": "fact"}
         doc_id = str(uuid.uuid4())
         
         # 1. Semantic (ChromaDB)

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_DIR = Path("D:/JARVIS")
+BASE_DIR = Path(__file__).resolve().parent
 
 # ── MODEL CONFIGURATION (fully local — no API keys required) ──
 # Modified from original 14B/3B plan down to 7B/1.5B for optimal 6GB VRAM performance.
@@ -27,10 +27,10 @@ ULTRAPLAN_THRESHOLD = 8  # Use background multi-agent when >= this
 # ── AUDIO ──
 SAMPLE_RATE      = 16000
 SILENCE_THRESHOLD = 0.03
-SILENCE_DURATION  = 1.5
+SILENCE_DURATION  = 0.6               # Adaptive end-of-speech silence (reduced from 1.5s)
 WHISPER_MODEL_SIZE = "small"              # multilingual
-WHISPER_DEVICE   = "cpu"                # using CPU as fallback for stt
-WHISPER_COMPUTE_TYPE = "int8"
+WHISPER_DEVICE   = "cuda"               # CUDA accelerated via Forge shared cuBLAS (falls back to CPU)
+WHISPER_COMPUTE_TYPE = "float16"        # float16 for CUDA, int8 for CPU
 WHISPER_THREADS  = 4
 PIPER_MODEL_PATH = str(BASE_DIR / "models" / "piper" / "en_GB-alan-medium.onnx")
 PIPER_CONFIG_PATH = str(BASE_DIR / "models" / "piper" / "en_GB-alan-medium.onnx.json")
@@ -141,3 +141,4 @@ CONSTITUTIONAL PRINCIPLES (non-negotiable):
 - If asked to do something harmful, decline clearly and offer an alternative.
 - Always maintain sir's privacy. No data leaves this machine without permission.
 """
+SCREEN_CAPTURE_MONITOR = 1

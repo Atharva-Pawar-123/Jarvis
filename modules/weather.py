@@ -6,6 +6,7 @@ No API key required.
 """
 
 import logging
+import urllib.parse
 import requests
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,8 @@ def get_weather(location: str = "") -> str:
     try:
         # format=%C+%t (Condition + Temperature)
         # format=3 is "City: Condition Temp"
-        url = f"https://wttr.in/{location}?format=%C+and+%t"
+        encoded_location = urllib.parse.quote(location) if location else ""
+        url = f"https://wttr.in/{encoded_location}?format=%C+and+%t"
         
         logger.info(f"Fetching weather for: {location or 'auto-detect'}")
         response = requests.get(url, timeout=10)
