@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # Modified from original 14B/3B plan down to 7B/1.5B for optimal 6GB VRAM performance.
 PRIMARY_MODEL    = "qwen2.5:7b"         # Main reasoning model
 FAST_MODEL       = "qwen2.5:1.5b"       # Intent classification
-CODER_MODEL      = "qwen2.5-coder:7b"   # Code generation
+CODER_MODEL      = "qwen2.5:7b"         # Code generation (using primary 7B model)
 EMBED_MODEL      = "nomic-embed-text"   # Embeddings
 VISION_MODEL     = "llava:7b"           # Vision supplement
 OLLAMA_HOST      = "http://localhost:11434"

@@ -1,5 +1,5 @@
 import React from 'react'
-import { MessageSquare, LayoutDashboard, Database, Settings, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { MessageSquare, LayoutDashboard, Database, Settings, Plus, Trash2, ChevronLeft, ChevronRight, Mic, Sparkles } from 'lucide-react'
 import useJarvisStore from '../store/useJarvisStore'
 
 export default function Sidebar() {
@@ -17,6 +17,8 @@ export default function Sidebar() {
 
   const tabs = [
     { id: 'chat', icon: MessageSquare, label: 'Chat' },
+    { id: 'voice', icon: Mic, label: 'Voice Chat' },
+    { id: 'imagegen', icon: Sparkles, label: 'Image Gen' },
     { id: 'hud', icon: LayoutDashboard, label: 'HUD Dashboard' },
     { id: 'memory', icon: Database, label: 'Memory' },
     { id: 'settings', icon: Settings, label: 'Settings' },

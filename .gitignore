@@ -8,6 +8,7 @@ __pycache__/
 
 # Environment Variables & Secrets
 .env
+*.env
 mcp.json
 
 # Databases
@@ -16,13 +17,16 @@ mcp.json
 *.db
 jarvis_data.sqlite
 
-# Logs & Output
+# Logs, Transcripts, Caches & Output
 logs/
 *.log
 generated_images/
 scratch/
+.system_generated/
+*.tmp
+*.temp
 
-# Data & Models
+# Data & Models (Do NOT push large model checkpoints)
 data/
 models/
 
@@ -35,3 +39,18 @@ app/release/
 *.7z
 *.whl
 *.safetensors
+*.onnx
+*.bin
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Temporary / Agent Scratch Notes
+JARVIS_Antigravity_LocalAI_Upgrade.txt
+JARVIS_Full_Context.txt
+JARVIS_Restoration_Report.txt
+deprecated_files.txt

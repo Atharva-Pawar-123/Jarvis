@@ -29,7 +29,7 @@ const useJarvisStore = create((set, get) => ({
   streamingContent: '',
 
   // ── UI ────────────────────────────────────────────────────────
-  activeTab: 'chat', // chat | hud | memory | settings
+  activeTab: 'chat', // chat | voice | imagegen | hud | memory | settings
   sidebarCollapsed: false,
 
   // ═══════════════════════════════════════════════════════════════

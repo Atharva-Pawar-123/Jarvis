@@ -42,6 +42,7 @@ from modules.automation import AutomationEngine
 from modules.email_handler import EmailHandler
 from modules.vision import VisionEngine
 from modules.code_engine import CodeEngine
+from modules.image_gen import ImageGenerationEngine
 from server.api_keys import APIKeyManager
 from server.websocket_manager import ConnectionManager
 
@@ -76,6 +77,7 @@ vision: VisionEngine = None
 automation: AutomationEngine = None
 email_h: EmailHandler = None
 code_e: CodeEngine = None
+image_gen: ImageGenerationEngine = None
 
 # Conversation store: {session_id: {messages, title, created_at}}
 conversations: dict = {}
@@ -111,6 +113,15 @@ class SettingsUpdateRequest(BaseModel):
 class CommandRequest(BaseModel):
     command: str
     session_id: str
+
+class ImageGenRequest(BaseModel):
+    prompt: str
+    negative_prompt: Optional[str] = ""
+    model: Optional[str] = "auto"
+    steps: Optional[int] = 20
+    width: Optional[int] = 512
+    height: Optional[int] = 512
+    enhance_prompt: Optional[bool] = True
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
@@ -413,6 +424,146 @@ async def clear_memory(x_confirm: Optional[str] = Header(None)):
         raise HTTPException(500, str(e))
 
 
+# ── Image Generation Endpoints ───────────────────────────────────────
+@app.get("/api/image/models")
+async def list_image_models():
+    """List available image generation models (Local Forge + Pollinations)."""
+    models = [
+        {
+            "id": "auto",
+            "name": "Auto (Best Available)",
+            "source": "auto",
+            "description": "Local SD Forge if running, otherwise free cloud Pollinations AI"
+        },
+        {
+            "id": "pollinations",
+            "name": "Pollinations AI (Cloud)",
+            "source": "pollinations",
+            "description": "Free cloud generation — No local GPU load, high aesthetic quality"
+        }
+    ]
+
+    # Check local Forge models if available
+    try:
+        import requests
+        forge_url = getattr(config, "SD_LOCAL_URL", "http://127.0.0.1:7860")
+        resp = requests.get(f"{forge_url}/sdapi/v1/sd-models", timeout=1.5)
+        if resp.status_code == 200:
+            for item in resp.json():
+                title = item.get("title") or item.get("model_name") or "Local Model"
+                models.insert(1, {
+                    "id": f"local:{title}",
+                    "name": f"{title} (Local SD)",
+                    "source": "forge",
+                    "description": f"Local Forge checkpoint: {item.get('filename', title)}"
+                })
+    except Exception:
+        # If Forge offline, still show local DreamShaper option
+        models.insert(1, {
+            "id": "local",
+            "name": "DreamShaper 8 (Local SD)",
+            "source": "forge",
+            "description": "Local SD Forge on GPU (auto-starts if available)"
+        })
+
+    return {"models": models}
+
+
+@app.post("/api/image/generate")
+async def generate_image_api(req: ImageGenRequest):
+    """Generate image and return as base64 data for the UI."""
+    if not image_gen:
+        raise HTTPException(500, "Image generation engine not initialized.")
+
+    working_prompt = req.prompt
+    enhanced_prompt = req.prompt
+    if req.enhance_prompt and llm:
+        try:
+            enhanced_prompt = await asyncio.to_thread(image_gen.enhance_prompt, req.prompt, llm)
+            working_prompt = enhanced_prompt
+        except Exception:
+            working_prompt = req.prompt
+
+    img_bytes = None
+    source = "Unknown"
+
+    # Select generation route based on model parameter
+    model_choice = req.model or "auto"
+
+    if model_choice == "pollinations":
+        # Force cloud Pollinations
+        img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt)
+    elif model_choice == "local" or model_choice.startswith("local:"):
+        # Force local
+        img_bytes = await asyncio.to_thread(
+            image_gen._generate_local,
+            working_prompt,
+            req.negative_prompt or "",
+            req.steps or 20,
+            req.width or 512,
+            req.height or 512
+        )
+        source = "Local Stable Diffusion" if img_bytes else None
+    else:
+        # Auto: try local first, fallback to Pollinations
+        img_bytes = await asyncio.to_thread(
+            image_gen._generate_local,
+            working_prompt,
+            req.negative_prompt or "",
+            req.steps or 20,
+            req.width or 512,
+            req.height or 512
+        )
+        if img_bytes:
+            source = "Local Stable Diffusion"
+        else:
+            img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt)
+
+    if not img_bytes:
+        raise HTTPException(500, "Image generation failed on all available engines.")
+
+    # Save to disk
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"gen_{timestamp}.png"
+    filepath = image_gen.save_dir / filename
+    try:
+        with open(filepath, "wb") as f:
+            f.write(img_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to save generated image to disk: {e}")
+
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+    return {
+        "image_base64": img_b64,
+        "source": source,
+        "filepath": str(filepath),
+        "prompt": req.prompt,
+        "enhanced_prompt": enhanced_prompt
+    }
+
+
+def _generate_pollinations_direct(prompt: str):
+    """Direct helper for Pollinations AI request."""
+    import urllib.parse
+    import requests
+    encoded = urllib.parse.quote(prompt.strip())
+    url = f"https://image.pollinations.ai/prompt/{encoded}?nologo=true&model=turbo"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, headers=headers, timeout=60)
+            if resp.status_code == 200 and resp.content:
+                return resp.content, "Pollinations AI (Cloud)"
+            elif resp.status_code in (402, 429, 503):
+                time.sleep(4)
+        except Exception as e:
+            logger.warning(f"Pollinations attempt {attempt+1} failed: {e}")
+            time.sleep(2)
+    return None, "Pollinations AI (Failed)"
+
+
 # ── Vision Endpoints ─────────────────────────────────────────────────
 @app.get("/api/vision/screenshot")
 async def take_screenshot():
@@ -684,6 +835,10 @@ async def startup():
     automation = AutomationEngine()
     email_h = EmailHandler()
     code_e = CodeEngine()
+    try:
+        image_gen = ImageGenerationEngine()
+    except Exception as e:
+        logger.warning(f"Could not initialize ImageGenerationEngine: {e}")
 
     # Pre-warm models in background
     asyncio.create_task(asyncio.to_thread(llm.pre_warm))
