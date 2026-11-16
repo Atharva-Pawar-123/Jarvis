@@ -1,13 +1,19 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### 100% Offline, Private, Zero-Cost AI Assistant for Personal Hardware
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware
 
 ---
 
 ## 📌 Project Overview
 
-**JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the Iron Man persona (Paul Bettany). Engineered specifically for personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and complete privacy**.
+**JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-JARVIS coordinates speech recognition, conversational intelligence, reasoning, vision, system automation, and high-speed local image generation through a modern multi-tab desktop app (providing a native ChatGPT / Claude / Grok-style experience).
+With the **V2 Autonomous Intelligence Upgrade**, JARVIS evolves from a simple command-response assistant into a true goal-driven cognitive system featuring:
+- **Unified Agentic Core**: Seamlessly bridges text chat, voice interactions, and background workflows into a single reasoning loop.
+- **Strict Security & Sandboxing**: Hardened execution environment with an action-risk permission engine (human-in-the-loop approvals for sensitive tasks).
+- **4-Tier Cognitive Memory**: Working memory, Episodic logs, Semantic RAG facts (with importance scoring and decay), and Procedural habit learning.
+- **Restart-Surviving Task Manager**: Checkpointed task execution stored in SQLite.
+- **Extensible Skill & MCP Ecosystem**: Modular plugin architecture supporting standard Model Context Protocol (MCP) servers.
+- **Hardware-Aware GPU Scheduler**: Intelligently manages the 6GB VRAM ceiling to prevent CUDA Out-of-Memory crashes.
 
 ---
 
@@ -17,39 +23,37 @@ JARVIS coordinates speech recognition, conversational intelligence, reasoning, v
 +─────────────────────────────────────────────────────────────────────────────+
 |                         USER INTERFACE & ENTRYPOINTS                        |
 |  - Desktop App: Electron + React 19 + TailwindCSS + Zustand + Framer Motion |
-|    * 💬 Chat View (ChatGPT/Claude style text messaging & reasoning)         |
-|    * 🎙️ Voice View (Push-to-talk orb with transcript & British TTS)         |
+|    * 💬 Chat View (ChatGPT/Claude-style streaming & autonomous reasoning)   |
+|    * 🎙️ Voice View (Push-to-talk Arc Reactor Orb, transcript, British TTS)   |
 |    * 🎨 Image Studio (Local Forge SD + Pollinations AI with model selector) |
-|    * 📊 HUD Dashboard (Real-time telemetry, GPU VRAM & system meters)       |
-|    * 🧠 Memory Inspector & Settings Configuration                           |
+|    * 📊 HUD Dashboard (Real-time CPU, RAM, GPU VRAM & system telemetry)     |
+|    * 🧠 Memory Inspector, Task Monitor, and Settings Configuration         |
 |  - Voice Daemon: OpenWakeWord ("hey_jarvis") + faster-whisper + Piper TTS   |
-|  - Classic Browser HUD: HTML5 / WebSocket audio orb & telemetry             |
 +─────────────────────────────────────────────────────────────────────────────+
                                        │
                                        ▼
 +─────────────────────────────────────────────────────────────────────────────+
 |                         CENTRAL NERVOUS SYSTEM                              |
-|  - main.py: CLI Orchestrator, Hotword Loop, Audio & Execution Dispatch      |
-|  - server/api_server.py: FastAPI REST & WebSocket Server (Port 8080)        |
+|  - Unified Agent Orchestrator: Goal decomposition, ReAct reasoning & tools  |
+|  - server/api_server.py: FastAPI REST & Scoped WebSocket Server (Port 8080) |
+|  - Persistent Task Engine: Checkpointed state machine in SQLite             |
 +─────────────────────────────────────────────────────────────────────────────+
                                        │
         ┌──────────────────────────────┼──────────────────────────────┐
         ▼                              ▼                              ▼
 +─────────────────+          +───────────────────+          +──────────────────+
-| COGNITIVE CORE  |          |   SENSORY ENGINE  |          | AUTOMATION SUITE |
-| (Local Ollama)  |          |   (Audio & Vision)|          | (System & Tools) |
-| - qwen2.5:7b    |          | - faster-whisper  |          | - automation.py  |
-| - qwen2.5:1.5b  |          | - Piper TTS       |          | - code_engine.py |
-| - nomic-embed   |          | - OpenWakeWord    |          | - scheduler.py   |
-| - llava:7b      |          | - Silero VAD      |          | - browser.py     |
-|                 |          | - SD WebUI Forge  |          | - web_search.py  |
+| COGNITIVE CORE  |          |   SENSORY ENGINE  |          | SECURITY & TOOLS |
+| (Local Ollama)  |          |   (Audio & Vision)|          | (Sandbox & Skills)
+| - qwen2.5:7b    |          | - faster-whisper  |          | - Permission Gate|
+| - qwen2.5:1.5b  |          | - Piper TTS (alan)|          | - Hardened Sandbox
+| - nomic-embed   |          | - OpenWakeWord    |          | - Win32 UI & Web |
+| - llava:7b      |          | - SD WebUI Forge  |          | - MCP & Skills   |
 +─────────────────+          +───────────────────+          +──────────────────+
 ```
 
-### Models & Tasks
-- **Primary Thinking (`qwen2.5:7b`)**: General conversational intelligence, multi-turn reasoning, and tool synthesis.
+### Models & Subsystems
+- **Primary Reasoning (`qwen2.5:7b`)**: General conversational intelligence, multi-step goal decomposition, and ReAct agent tool calling.
 - **Intent Classifier (`qwen2.5:1.5b`)**: Fast, deterministic intent extraction and slot-filling with history context.
-- **Code Engine (`qwen2.5:7b`)**: Script synthesis and autonomous Python/PowerShell execution in a secure sandbox.
 - **Vision Engine (`llava:7b` / `moondream2`)**: Screen understanding, OCR via PyTesseract, and DeepFace emotion detection.
 - **Hybrid Memory (`nomic-embed-text` + ChromaDB + BM25)**: Vector embeddings + lexical keywords fused via Reciprocal Rank Fusion (RRF).
 - **Speech-to-Text (`faster-whisper` small on CUDA)**: Transcribes voice in ~0.04s with Silero VAD adaptive silence detection (~0.6s).
@@ -58,13 +62,14 @@ JARVIS coordinates speech recognition, conversational intelligence, reasoning, v
 
 ---
 
-## 🖥️ Modern Desktop Application (ChatGPT / Grok Experience)
+## 🖥️ Modern Desktop Application (ChatGPT / Grok / Claude Experience)
 
-The desktop app in `app/` is a unified Electron + React interface:
+The desktop app in `app/` is a unified Electron + React client:
 
 1. **💬 Chat View (Default AI Chat)**:
    - Type messages directly to JARVIS and receive token-by-token streaming responses.
    - Formatted with Markdown, code highlighting, copy buttons, and multi-session conversation history.
+   - Live status indicator displaying current agent reasoning steps (e.g. *Searching web*, *Reading file*, *Inspecting screen*).
    - Optional microphone dictation directly in the chat bar.
 
 2. **🎙️ Voice Chat View**:
@@ -78,6 +83,10 @@ The desktop app in `app/` is a unified Electron + React interface:
    - Prompt input supporting text typing (default) or voice dictation via microphone.
    - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 768×768).
    - Gallery strip with full-resolution preview, prompt reuse, and direct PNG download.
+
+4. **📊 HUD Dashboard & Task Monitor**:
+   - Live system gauges for CPU, RAM, GPU VRAM usage, and temperatures.
+   - Visual inspect panel for active background tasks, checkpoints, and execution progress.
 
 ---
 
@@ -100,7 +109,7 @@ The desktop app in `app/` is a unified Electron + React interface:
 ---
 
 ### 2. Running the Modern Desktop App (Recommended)
-Launch the complete desktop application with one command:
+Launch the complete desktop application with a single command:
 ```powershell
 cd D:\JARVIS\app
 npm run electron:dev
@@ -151,14 +160,13 @@ cd D:\JARVIS\tools\forge
 | **Text Chat** | Conversational reasoning like ChatGPT/Claude | Type message in the **Chat** tab and press `Enter` |
 | **Dedicated Voice Chat** | Full-screen push-to-talk orb with transcript | Click the **Voice Chat** tab in the sidebar |
 | **Image Studio** | Multi-model image generation with gallery & presets | Click the **Image Gen** tab in the sidebar |
+| **Autonomous Workflows** | Goal decomposition and multi-step background tasks | *"Research AI tools and prepare a report"*, *"Organize my week"* |
 | **Voice Barge-In / Interruption** | Silences JARVIS mid-speech in ~50 ms | Say *"Hey Jarvis"* while he speaks, talk over him, or press **Escape** |
 | **Local Image Generation** | Renders images via local Forge or Pollinations | *"Generate an image of an Iron Man helmet on marble"*, *"Create a picture of..."* |
 | **Screen Vision & OCR** | Analyzes screen content or webcam feed | *"Describe my screen"*, *"Read the text on my screen"*, *"Look at webcam"* |
-| **Autonomous Code Engine** | Authors & runs Python/PowerShell scripts | *"Write a python script to solve Fibonacci and run it"*, *"Execute code to..."* |
-| **Windows Automation** | Opens/closes apps, adjusts volume, screenshots | *"Open Notepad"*, *"Close Spotify"*, *"Volume up"*, *"Mute"*, *"Take a screenshot"* |
-| **System Diagnostics** | Real-time monitoring of CPU, RAM, & Disk | *"System status"*, *"Check system diagnostics"* |
+| **Autonomous Code Engine** | Authors & runs Python/PowerShell scripts safely | *"Write a python script to solve Fibonacci and run it"*, *"Execute code to..."* |
+| **Windows Automation** | Opens/closes apps, inspects windows, screenshots | *"Open Notepad"*, *"Close Spotify"*, *"Focus Chrome"*, *"Take a screenshot"* |
+| **System Diagnostics** | Real-time monitoring of CPU, RAM, & GPU | *"System status"*, *"Check GPU telemetry"* |
 | **Web & Live Information** | Web scraping, live search, weather, news | *"Search the web for..."*, *"What's the weather in London?"*, *"Get top news"* |
-| **Hybrid RAG Memory** | Semantic + BM25 long-term fact storage | *"Remember that my favorite language is Python"*, *"Search memory for..."*, *"Clear memory"* |
-| **Document Ingestion** | Reads and embeds PDF, DOCX, TXT files | *"Ingest document D:\path\to\document.pdf"* |
+| **4-Tier Cognitive Memory** | Semantic + BM25 fact storage & procedural habits | *"Remember that my favorite language is Python"*, *"Search memory for..."* |
 | **Smart Reminders** | Background scheduler with spoken alarms | *"Set a reminder in 10 minutes to take a break"*, *"Remind me at 5 PM"* |
-| **ReAct & UltraPlan** | Complex multi-step reasoning and background tasks | *"Check the weather, summarize it, and save to a file"* |

@@ -43,6 +43,17 @@ from modules.email_handler import EmailHandler
 from modules.vision import VisionEngine
 from modules.code_engine import CodeEngine
 from modules.image_gen import ImageGenerationEngine
+from modules.security.permission_engine import PermissionEngine, ActionCategory
+from modules.agent.tool_registry import StructuredToolRegistry
+from modules.agent.orchestrator import UnifiedAgentOrchestrator
+from modules.tasks.task_manager import PersistentTaskManager
+from modules.cognitive_memory import FourTierMemorySystem
+from modules.skills.registry import DynamicSkillRegistry
+from modules.mcp.manager import PluginManager
+from modules.gpu_scheduler import GPUScheduler
+from modules.computer_use import WindowsComputerUse, PlaywrightBrowserAgent
+from modules.autonomous_workflow import AutonomousWorkflowEngine
+from server.session_db import SessionDatabase
 from server.api_keys import APIKeyManager
 from server.websocket_manager import ConnectionManager
 
@@ -68,6 +79,18 @@ START_TIME = time.time()
 # Module instances (initialized lazily in startup)
 manager: ConnectionManager = ConnectionManager()
 key_mgr: APIKeyManager = APIKeyManager()
+session_db: SessionDatabase = SessionDatabase()
+permission_engine: PermissionEngine = PermissionEngine()
+tool_registry: StructuredToolRegistry = StructuredToolRegistry()
+task_manager: PersistentTaskManager = PersistentTaskManager()
+skill_registry: DynamicSkillRegistry = DynamicSkillRegistry()
+mcp_manager: PluginManager = PluginManager()
+gpu_scheduler: GPUScheduler = GPUScheduler()
+computer_use: WindowsComputerUse = WindowsComputerUse()
+browser_agent: PlaywrightBrowserAgent = PlaywrightBrowserAgent()
+workflow_engine: AutonomousWorkflowEngine = None
+four_tier_memory: FourTierMemorySystem = None
+orchestrator: UnifiedAgentOrchestrator = None
 llm: IntelligentLLMEngine = None
 tts: StreamingTextToSpeech = None
 stt: SpeechToText = None
@@ -78,9 +101,6 @@ automation: AutomationEngine = None
 email_h: EmailHandler = None
 code_e: CodeEngine = None
 image_gen: ImageGenerationEngine = None
-
-# Conversation store: {session_id: {messages, title, created_at}}
-conversations: dict = {}
 
 # Settings file
 SETTINGS_FILE = config.DATA_DIR / "user_settings.json"
@@ -143,7 +163,7 @@ def _save_settings(settings: dict):
 
 def _build_messages(session_id: str, user_content: str,
                     memory_context: str = "") -> list:
-    """Build the message list for the LLM from conversation history."""
+    """Build the message list for the LLM from persistent conversation history."""
     msgs = [{"role": "system", "content": config.JARVIS_SYSTEM_PROMPT}]
 
     if memory_context:
@@ -152,9 +172,10 @@ def _build_messages(session_id: str, user_content: str,
             "content": f"Relevant memory context:\n{memory_context}"
         })
 
-    # Add conversation history
-    if session_id in conversations:
-        for m in conversations[session_id]["messages"][-config.MAX_HISTORY_TURNS * 2:]:
+    # Add conversation history from SQLite
+    sess = session_db.get_session(session_id)
+    if sess and sess.get("messages"):
+        for m in sess["messages"][-config.MAX_HISTORY_TURNS * 2:]:
             role = "user" if m["role"] == "user" else "assistant"
             msgs.append({"role": role, "content": m["content"]})
 
@@ -163,13 +184,8 @@ def _build_messages(session_id: str, user_content: str,
 
 
 def _ensure_session(session_id: str) -> str:
-    """Create session if it doesn't exist. Return session_id."""
-    if session_id not in conversations:
-        conversations[session_id] = {
-            "messages": [],
-            "title": "New conversation",
-            "created_at": datetime.now().isoformat(),
-        }
+    """Create session in SQLite if it doesn't exist. Return session_id."""
+    session_db.create_session(session_id)
     return session_id
 
 
@@ -179,6 +195,7 @@ def _ensure_session(session_id: str) -> str:
 
 # ── Health ─────────────────────────────────────────────────────────────
 @app.get("/health")
+@app.get("/api/health")
 async def health():
     ollama_ok = False
     try:
@@ -189,7 +206,7 @@ async def health():
         pass
     return {
         "status": "ok",
-        "version": "3.0",
+        "version": "3.1",
         "ollama": ollama_ok,
         "uptime_seconds": int(time.time() - START_TIME),
     }
@@ -222,46 +239,96 @@ async def list_models():
 @app.post("/api/sessions/new")
 async def create_session(req: NewSessionRequest):
     sid = str(uuid.uuid4())
-    conversations[sid] = {
-        "messages": [],
-        "title": req.title,
-        "created_at": datetime.now().isoformat(),
-    }
-    return {"session_id": sid, "title": req.title,
-            "created_at": conversations[sid]["created_at"]}
+    res = session_db.create_session(sid, req.title or "New conversation")
+    return res
 
 
 @app.get("/api/sessions")
 async def list_sessions():
-    result = []
-    for sid, data in conversations.items():
-        last_msg = ""
-        if data["messages"]:
-            last_msg = data["messages"][-1]["content"][:100]
-        result.append({
-            "session_id": sid,
-            "title": data["title"],
-            "message_count": len(data["messages"]),
-            "last_message": last_msg,
-            "created_at": data["created_at"],
-        })
-    result.sort(key=lambda x: x["created_at"], reverse=True)
-    return result
+    return session_db.list_sessions()
 
 
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
-    if session_id not in conversations:
+    sess = session_db.get_session(session_id)
+    if not sess:
         raise HTTPException(404, "Session not found")
-    return conversations[session_id]
+    return sess
 
 
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
-    if session_id not in conversations:
-        raise HTTPException(404, "Session not found")
-    del conversations[session_id]
+    session_db.delete_session(session_id)
     return {"deleted": session_id}
+
+
+# ── Autonomous Workflow Endpoints ────────────────────────────────────
+class AutonomousGoalRequest(BaseModel):
+    goal: str
+    title: Optional[str] = None
+
+@app.post("/api/workflows/goal")
+async def start_autonomous_goal(req: AutonomousGoalRequest):
+    if not workflow_engine:
+        raise HTTPException(500, "Autonomous Workflow Engine not ready.")
+    task_id = await workflow_engine.start_autonomous_goal(req.goal, req.title)
+    return {"task_id": task_id, "status": "QUEUED", "goal": req.goal}
+
+
+# ── Computer Use & Telemetry Endpoints ───────────────────────────────
+@app.get("/api/windows/active")
+async def get_active_window():
+    return computer_use.get_active_window()
+
+
+@app.get("/api/windows/list")
+async def list_open_windows():
+    return {"windows": computer_use.list_open_windows()}
+
+
+@app.post("/api/windows/focus")
+async def focus_window(query: str):
+    ok = computer_use.focus_window(query)
+    return {"success": ok}
+
+
+@app.get("/api/gpu/telemetry")
+async def get_gpu_telemetry():
+    return gpu_scheduler.get_gpu_telemetry()
+
+
+# ── Skills & MCP Endpoints ───────────────────────────────────────────
+@app.get("/api/skills")
+async def list_skills():
+    return {"skills": skill_registry.list_loaded_skills()}
+
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers():
+    return {
+        "servers": list(mcp_manager.clients.keys()),
+        "tools": [t.to_llm_schema() for t in mcp_manager._all_tools]
+    }
+
+
+# ── Background Tasks Endpoints ───────────────────────────────────────
+@app.get("/api/tasks")
+async def list_tasks():
+    return {"tasks": task_manager.list_tasks()}
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id: str):
+    t = task_manager.get_task(task_id)
+    if not t:
+        raise HTTPException(404, "Task not found")
+    return t
+
+
+@app.post("/api/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    task_manager.cancel_task(task_id)
+    return {"cancelled": task_id}
 
 
 # ── Chat (Main Endpoint) ─────────────────────────────────────────────
@@ -270,46 +337,63 @@ async def send_message(req: MessageRequest):
     start_t = time.time()
     sid = _ensure_session(req.session_id)
 
-    # 1. Append user message
-    conversations[sid]["messages"].append({
-        "role": "user",
-        "content": req.content,
-        "timestamp": datetime.now().isoformat(),
-    })
+    # 1. Append user message to SQLite
+    session_db.add_message(sid, "user", req.content)
 
     # 2. Classify intent
     classified = await asyncio.to_thread(intent.classify, req.content)
     intent_name = classified.get("intent", "chat")
 
-    # 3. Get memory context
+    # 3. Check Security / Permission Gate for classified action
+    if intent_name in (ActionCategory.SEND_EMAIL, ActionCategory.SEND_WHATSAPP, ActionCategory.DELETE_FILE, ActionCategory.SYSTEM_SHUTDOWN):
+        authorized, reason = await permission_engine.verify_and_authorize(intent_name, {"query": req.content})
+        if not authorized:
+            refusal_response = f"I require your explicit authorization to proceed with {intent_name.replace('_', ' ')}, sir. Action was not executed."
+            session_db.add_message(sid, "jarvis", refusal_response)
+            return {
+                "response": refusal_response,
+                "intent": intent_name,
+                "session_id": sid,
+                "tokens_used": len(refusal_response) // 4,
+                "latency_ms": int((time.time() - start_t) * 1000),
+            }
+
+    # 4. Get memory context
     ctx = ""
     try:
         ctx = await asyncio.to_thread(memory.get_relevant_context, req.content)
     except Exception as e:
         logger.warning(f"Memory retrieval failed: {e}")
 
-    # 4. Build message list
+    # 5. Build message list
     messages = _build_messages(sid, req.content, ctx)
 
-    # 5. Generate response
+    # 6. Generate response via Unified Agent Orchestrator
     response_text = ""
     try:
-        response_text = await asyncio.to_thread(
-            llm.generate, messages, False  # non-streaming for REST
-        )
+        sess = session_db.get_session(sid)
+        history = sess.get("messages", [])[:-1] if sess else []
+
+        if orchestrator:
+            response_text = await orchestrator.execute_task(
+                query=req.content,
+                conversation_history=history,
+                step_callback=lambda step: manager.send_to_session(sid, {"type": "agent_step", "step": step})
+            )
+        else:
+            response_text = await asyncio.to_thread(
+                llm.generate, messages, False
+            )
     except Exception as e:
-        logger.error(f"LLM generation failed: {e}")
+        logger.error(f"Orchestrator generation failed: {e}", exc_info=True)
         response_text = "I'm experiencing a temporary issue with my reasoning engine, sir. Please try again."
 
-    # 6. Append JARVIS response
-    conversations[sid]["messages"].append({
-        "role": "jarvis",
-        "content": response_text,
-        "timestamp": datetime.now().isoformat(),
-    })
+    # 7. Append JARVIS response to SQLite
+    session_db.add_message(sid, "jarvis", response_text)
 
-    # 7. Auto-title first message
-    if len(conversations[sid]["messages"]) == 2:
+    # 8. Auto-title first message
+    sess = session_db.get_session(sid)
+    if sess and len(sess.get("messages", [])) == 2:
         try:
             title = await asyncio.to_thread(
                 llm.generate,
@@ -317,7 +401,8 @@ async def send_message(req: MessageRequest):
                   f"Give this conversation a short 4-word title: {req.content}"}],
                 False, False, config.FAST_MODEL
             )
-            conversations[sid]["title"] = title.strip().strip('"').strip("'")[:50]
+            clean_title = title.strip().strip('"').strip("'")[:50]
+            session_db.update_title(sid, clean_title)
         except Exception:
             pass
 
@@ -731,12 +816,8 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                 if not content:
                     continue
 
-                # Append user message
-                conversations[session_id]["messages"].append({
-                    "role": "user",
-                    "content": content,
-                    "timestamp": datetime.now().isoformat(),
-                })
+                # Append user message to SQLite
+                session_db.add_message(session_id, "user", content)
 
                 # Get memory context
                 ctx = ""
@@ -751,7 +832,7 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                 messages = _build_messages(session_id, content, ctx)
 
                 async def ws_stream_callback(token: str):
-                    await ws.send_json({"type": "token", "content": token})
+                    await manager.send_token_to_session(session_id, token)
 
                 # Temporarily swap the stream callback
                 original_cb = llm.stream_callback
@@ -771,15 +852,12 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                     "content": response,
                 })
 
-                # Append JARVIS response
-                conversations[session_id]["messages"].append({
-                    "role": "jarvis",
-                    "content": response,
-                    "timestamp": datetime.now().isoformat(),
-                })
+                # Append JARVIS response to SQLite
+                session_db.add_message(session_id, "jarvis", response)
 
                 # Auto-title
-                if len(conversations[session_id]["messages"]) == 2:
+                sess = session_db.get_session(session_id)
+                if sess and len(sess.get("messages", [])) == 2:
                     try:
                         title = await asyncio.to_thread(
                             llm.generate,
@@ -787,12 +865,11 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                               f"Give this conversation a short 4-word title: {content}"}],
                             False, False, config.FAST_MODEL
                         )
-                        conversations[session_id]["title"] = (
-                            title.strip().strip('"').strip("'")[:50]
-                        )
+                        clean_title = title.strip().strip('"').strip("'")[:50]
+                        session_db.update_title(session_id, clean_title)
                         await ws.send_json({
                             "type": "title_update",
-                            "title": conversations[session_id]["title"],
+                            "title": clean_title,
                         })
                     except Exception:
                         pass
@@ -813,7 +890,7 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
 
 @app.on_event("startup")
 async def startup():
-    global llm, tts, stt, intent, memory, vision, automation, email_h, code_e
+    global llm, tts, stt, intent, memory, vision, automation, email_h, code_e, image_gen, orchestrator, four_tier_memory
 
     logger.info("JARVIS API server starting...")
 
@@ -831,6 +908,7 @@ async def startup():
     stt = SpeechToText()
     intent = DualModelIntentClassifier(llm)
     memory = HybridRAGMemory(llm)
+    four_tier_memory = FourTierMemorySystem(memory)
     vision = VisionEngine()
     automation = AutomationEngine()
     email_h = EmailHandler()
@@ -839,6 +917,49 @@ async def startup():
         image_gen = ImageGenerationEngine()
     except Exception as e:
         logger.warning(f"Could not initialize ImageGenerationEngine: {e}")
+
+    # Register tools into structured registry
+    tool_registry.register("open_app", "Launch or open a desktop app", lambda app_name: automation.open_app(app_name))
+    tool_registry.register("close_app", "Close an active desktop application", lambda app_name: automation.close_app(app_name))
+    tool_registry.register("system_status", "Check system CPU, RAM, Disk, and metrics", lambda: automation.get_system_status())
+    tool_registry.register("take_screenshot", "Capture screen image", lambda: automation.take_screenshot())
+    tool_registry.register("describe_screen", "Analyze and describe what is visible on display", lambda: vision.describe_screen())
+    tool_registry.register("search_memory", "Search past conversation memory and stored facts", lambda query: memory.get_relevant_context(query))
+    tool_registry.register("execute_code", "Execute Python code in isolated sandbox", lambda code: code_e.execute_python(code), risk="high")
+    tool_registry.register("list_windows", "List all open desktop application windows", lambda: computer_use.list_open_windows())
+    tool_registry.register("focus_window", "Switch focus to a specific desktop application window", lambda window_name: computer_use.focus_window(window_name))
+    tool_registry.register("browse_page", "Headlessly fetch clean page text without taking mouse focus", lambda url: asyncio.run(browser_agent.fetch_page_content(url)))
+
+    # Mount dynamic skills
+    skill_registry.discover_and_mount(tool_registry)
+
+    # Initialize MCP Plugins if configured
+    try:
+        mcp_manager.start_all()
+        # Register MCP tools into StructuredToolRegistry
+        for mcp_tool in mcp_manager._all_tools:
+            tool_registry.register(
+                name=f"mcp__{mcp_tool.server_name}__{mcp_tool.name}",
+                description=f"[MCP:{mcp_tool.server_name}] {mcp_tool.description}",
+                func=lambda **kwargs: mcp_manager.clients[mcp_tool.server_name].call_tool(mcp_tool.name, kwargs),
+                risk="medium"
+            )
+    except Exception as e:
+        logger.warning(f"MCP Plugin auto-start: {e}")
+
+    # Initialize Unified Orchestrator
+    orchestrator = UnifiedAgentOrchestrator(
+        llm=llm,
+        tools=tool_registry,
+        memory=memory,
+        permission_engine=permission_engine
+    )
+
+    # Initialize Autonomous Workflow Engine
+    workflow_engine = AutonomousWorkflowEngine(
+        orchestrator=orchestrator,
+        task_manager=task_manager
+    )
 
     # Pre-warm models in background
     asyncio.create_task(asyncio.to_thread(llm.pre_warm))

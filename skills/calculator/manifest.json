@@ -1,0 +1,17 @@
+{
+  "name": "calculator",
+  "version": "1.0.0",
+  "description": "Performs exact mathematical evaluations safely.",
+  "permissions_required": [],
+  "parameters_schema": {
+    "type": "object",
+    "properties": {
+      "expression": {
+        "type": "string",
+        "description": "Math expression (e.g. 45 * 12 + sqrt(144))"
+      }
+    },
+    "required": ["expression"]
+  },
+  "timeout_seconds": 5
+}

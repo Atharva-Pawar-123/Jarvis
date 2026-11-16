@@ -39,13 +39,14 @@ async function checkBackendHealth(maxRetries = 30, interval = 1000) {
 }
 
 async function startPythonBackend() {
-  const pythonExe = path.join('D:', 'JARVIS', 'venv', 'Scripts', 'python.exe')
-  const serverScript = path.join('D:', 'JARVIS', 'server', 'api_server.py')
+  const projectRoot = path.resolve(__dirname, '..', '..')
+  const pythonExe = path.join(projectRoot, 'venv', 'Scripts', 'python.exe')
+  const serverScript = path.join(projectRoot, 'server', 'api_server.py')
 
   pythonProcess = spawn(pythonExe, [serverScript], {
     detached: false,
     stdio: ['ignore', 'pipe', 'pipe'],
-    cwd: path.join('D:', 'JARVIS'),
+    cwd: projectRoot,
   })
 
   pythonProcess.stdout.on('data', (d) =>
