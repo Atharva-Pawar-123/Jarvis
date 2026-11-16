@@ -12,10 +12,11 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Optional, List
+import config
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path("D:/JARVIS/data/jarvis_data.sqlite")
+DB_PATH = config.DATA_DIR / "jarvis_data.sqlite"
 
 
 class APIKeyManager:
