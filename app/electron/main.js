@@ -8,12 +8,37 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeTheme, shell } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
-const isDev = false
+const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
 
 let mainWindow, tray, pythonProcess
 
 // ── LAUNCH PYTHON BACKEND ──────────────────────────────────────────
-function startPythonBackend() {
+async function checkBackendHealth(maxRetries = 30, interval = 1000) {
+  const http = require('http')
+  for (let i = 0; i < maxRetries; i++) {
+    const isUp = await new Promise((resolve) => {
+      const req = http.get('http://127.0.0.1:8080/api/health', (res) => {
+        if (res.statusCode === 200) resolve(true)
+        else resolve(false)
+      })
+      req.on('error', () => resolve(false))
+      req.setTimeout(800, () => {
+        req.destroy()
+        resolve(false)
+      })
+    })
+
+    if (isUp) {
+      console.log(`[JARVIS] Backend is healthy after ${i + 1}s!`)
+      return true
+    }
+    await new Promise((r) => setTimeout(r, interval))
+  }
+  console.warn('[JARVIS] Backend health check timed out, proceeding anyway...')
+  return false
+}
+
+async function startPythonBackend() {
   const pythonExe = path.join('D:', 'JARVIS', 'venv', 'Scripts', 'python.exe')
   const serverScript = path.join('D:', 'JARVIS', 'server', 'api_server.py')
 
@@ -33,8 +58,8 @@ function startPythonBackend() {
     console.log('[JARVIS Backend] exited with code:', code)
   )
 
-  // Wait for backend to initialize before loading frontend
-  return new Promise((resolve) => setTimeout(resolve, 3000))
+  // Poll until backend is healthy and responding
+  await checkBackendHealth()
 }
 
 // ── CREATE MAIN WINDOW ─────────────────────────────────────────────

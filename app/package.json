@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "electron:start": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"electron . --dev\"",
     "start": "concurrently \"npm run dev\" \"npm run electron:start\"",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"

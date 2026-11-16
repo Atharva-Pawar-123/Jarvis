@@ -5,199 +5,160 @@
 
 ## 📌 Project Overview
 
-**JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the Iron Man persona (Paul Bettany). Engineered specifically for local personal hardware (NVIDIA RTX 3050 6GB VRAM, 16GB RAM), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and complete privacy**.
+**JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the Iron Man persona (Paul Bettany). Engineered specifically for personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and complete privacy**.
 
-JARVIS coordinates speech recognition, conversational intelligence, reasoning, vision, system automation, and high-speed local image generation through a hybrid desktop interface.
+JARVIS coordinates speech recognition, conversational intelligence, reasoning, vision, system automation, and high-speed local image generation through a modern multi-tab desktop app (providing a native ChatGPT / Claude / Grok-style experience).
 
 ---
 
-## 🏛️ Core Architecture
+## 🏛️ Core Architecture & Models
 
 ```
 +─────────────────────────────────────────────────────────────────────────────+
 |                         USER INTERFACE & ENTRYPOINTS                        |
-|  - Voice I/O: OpenWakeWord ("hey_jarvis") + faster-whisper + Piper TTS      |
 |  - Desktop App: Electron + React 19 + TailwindCSS + Zustand + Framer Motion |
-|  - Browser HUD: HTML5 / WebSocket real-time audio orb & system monitor      |
+|    * 💬 Chat View (ChatGPT/Claude style text messaging & reasoning)         |
+|    * 🎙️ Voice View (Push-to-talk orb with transcript & British TTS)         |
+|    * 🎨 Image Studio (Local Forge SD + Pollinations AI with model selector) |
+|    * 📊 HUD Dashboard (Real-time telemetry, GPU VRAM & system meters)       |
+|    * 🧠 Memory Inspector & Settings Configuration                           |
+|  - Voice Daemon: OpenWakeWord ("hey_jarvis") + faster-whisper + Piper TTS   |
+|  - Classic Browser HUD: HTML5 / WebSocket audio orb & telemetry             |
 +─────────────────────────────────────────────────────────────────────────────+
                                        │
                                        ▼
 +─────────────────────────────────────────────────────────────────────────────+
 |                         CENTRAL NERVOUS SYSTEM                              |
 |  - main.py: CLI Orchestrator, Hotword Loop, Audio & Execution Dispatch      |
-|  - server/api_server.py: FastAPI v3.0 REST & WebSocket Server (Port 8080)   |
+|  - server/api_server.py: FastAPI REST & WebSocket Server (Port 8080)        |
 +─────────────────────────────────────────────────────────────────────────────+
-       │                                              │
-       ▼                                              ▼
-+──────────────────────────+       +──────────────────────────────────────────+
-|  INTELLIGENT LLM ENGINE  |       |        HYBRID RAG LONG-TERM MEMORY       |
-|  - Primary: qwen2.5:7b   |       |  - Semantic Search: ChromaDB (vector)    |
-|  - Fast Intent: 1.5b     |       |  - Keyword Search: BM25Okapi             |
-|  - Coder: 7b             |       |  - Fusion: Reciprocal Rank Fusion (k=60) |
-|  - Vision: llava:7b      |       |  - Auto-fact extraction in background    |
-+──────────────────────────+       +──────────────────────────────────────────+
-       │
-       ▼
-+─────────────────────────────────────────────────────────────────────────────+
-|                               TOOL REGISTRY                                 |
-|  - System Automation: Windows APIs, taskkill, volume, clipboard, hotkeys    |
-|  - Unrestricted Image Gen: Local SD WebUI Forge + DreamShaper 8 (GPU)       |
-|  - Computer Vision: Screen description, PyTesseract OCR, Webcam Mood        |
-|  - Code Sandbox: Sandboxed subprocess Python code execution & fix loop      |
-|  - Multi-Agent Orchestration: ReAct Agent + UltraPlan background tasks      |
-|  - IoT & Communications: Email (IMAP/SMTP), WhatsApp, Home Assistant       |
-+─────────────────────────────────────────────────────────────────────────────+
+                                       │
+        ┌──────────────────────────────┼──────────────────────────────┐
+        ▼                              ▼                              ▼
++─────────────────+          +───────────────────+          +──────────────────+
+| COGNITIVE CORE  |          |   SENSORY ENGINE  |          | AUTOMATION SUITE |
+| (Local Ollama)  |          |   (Audio & Vision)|          | (System & Tools) |
+| - qwen2.5:7b    |          | - faster-whisper  |          | - automation.py  |
+| - qwen2.5:1.5b  |          | - Piper TTS       |          | - code_engine.py |
+| - nomic-embed   |          | - OpenWakeWord    |          | - scheduler.py   |
+| - llava:7b      |          | - Silero VAD      |          | - browser.py     |
+|                 |          | - SD WebUI Forge  |          | - web_search.py  |
++─────────────────+          +───────────────────+          +──────────────────+
 ```
 
----
-
-## 🚀 Key Features
-
-### 1. Conversational Reasoning & Multi-Agent Planning
-- **Dual-Model Intent Classifier**: Sub-200ms intent classification using `qwen2.5:1.5b` with multi-turn conversation awareness.
-- **ReAct Agent**: Dynamic Thought-Action-Observation loop that inspects parameters, invokes local tools, and reports verified results.
-- **UltraPlan Coordinator**: Background asynchronous task executor that handles complex multi-step goals without blocking voice/chat interactions.
-- **Chain-of-Thought (CoT)**: Step-by-step reasoning enclosed in hidden tags before producing spoken responses.
-
-### 2. High-Speed, Uncensored Local Image Generation (Zero-Cost)
-- **Embedded Engine**: Powered by an isolated local **SD WebUI Forge** backend (`D:\JARVIS\tools\forge\`).
-- **Base Model**: **DreamShaper 8** (`.safetensors`, 2.13 GB), fully capable of both **SFW and unrestricted NSFW** art, anime, and photorealism.
-- **GPU Accelerated**: Produces images in **~4–6 seconds** on an RTX 3050 (6GB VRAM) using layer-wise memory offloading and xFormers cross-attention.
-- **Prompt Engineering**: JARVIS automatically expands user prompts into artistic concepts with negative prompt filters to prevent anatomical defects.
-- **Batch Processing**: Supports rendering multiple variations with automatic completion callbacks and gallery pop-ups.
-
-### 3. Voice & Speech Pipeline
-- **Wake Word Detection**: Background `openwakeword` listening continuously for *"hey_jarvis"* with offline-safe loading.
-- **Speech-to-Text (STT)**: `faster-whisper` (`small` model) with real-time RMS-based silence cutoff.
-- **Streaming Text-to-Speech (TTS)**: Piper TTS (`en_GB-alan-medium.onnx`, Paul Bettany British persona) streaming tokens into sentence buffers with parallel worker pools and zero LLM loop blocking.
-
-### 4. Hybrid Long-Term Memory (RAG)
-- Combines dense vector embeddings via **ChromaDB** with sparse lexical matching via **BM25Okapi**.
-- Merges results using **Reciprocal Rank Fusion (RRF)**.
-- Automatically stores personal facts, user preferences, and prior conversation context across sessions.
-
-### 5. Computer Vision & Screen Intelligence
-- Screen capture via `mss` and webcam capture via OpenCV with safe resource disposal.
-- Multi-modal visual question answering (VQA) using `llava:7b` / Moondream.
-- High-accuracy screen OCR via PyTesseract.
-- Facial mood detection via DeepFace.
-
-### 6. Full Desktop Control & Tool Suite
-- **App Management**: Open and cleanly terminate applications (`taskkill` sanitized subprocess).
-- **Audio Control**: Increase, decrease, or toggle Windows system volume natively via `ctypes`.
-- **System Telemetry**: Real-time CPU, RAM, GPU VRAM, disk, and battery reporting.
-- **Live Utilities**: Weather fetching (via `wttr.in`), web search, and news updates.
-- **Secure Code Engine**: Isolates and executes Python scripts in unique temporary workspaces using the project virtual environment.
+### Models & Tasks
+- **Primary Thinking (`qwen2.5:7b`)**: General conversational intelligence, multi-turn reasoning, and tool synthesis.
+- **Intent Classifier (`qwen2.5:1.5b`)**: Fast, deterministic intent extraction and slot-filling with history context.
+- **Code Engine (`qwen2.5:7b`)**: Script synthesis and autonomous Python/PowerShell execution in a secure sandbox.
+- **Vision Engine (`llava:7b` / `moondream2`)**: Screen understanding, OCR via PyTesseract, and DeepFace emotion detection.
+- **Hybrid Memory (`nomic-embed-text` + ChromaDB + BM25)**: Vector embeddings + lexical keywords fused via Reciprocal Rank Fusion (RRF).
+- **Speech-to-Text (`faster-whisper` small on CUDA)**: Transcribes voice in ~0.04s with Silero VAD adaptive silence detection (~0.6s).
+- **Text-to-Speech (Piper `en_GB-alan-medium.onnx`)**: Crisp British accent with ~50 ms chunked playback and instant interruption.
+- **Image Generation (SD WebUI Forge + Pollinations AI)**: Multi-model suite featuring local Stable Diffusion Forge (DreamShaper 8 on CUDA with xFormers) alongside free cloud fallback via Pollinations AI.
 
 ---
 
-## 🛠️ Requirements & Prerequisites
+## 🖥️ Modern Desktop Application (ChatGPT / Grok Experience)
 
-### Hardware
-- **GPU**: NVIDIA RTX 3050 (Laptop or Desktop) with at least 6GB VRAM (or higher).
-- **RAM**: 16 GB System Memory.
-- **Disk**: ~15–20 GB free space on `D:\` drive.
-- **OS**: Windows 10/11 (64-bit).
+The desktop app in `app/` is a unified Electron + React interface:
 
-### Software
-- **Python**: 3.11.x (installed in `D:\JARVIS\venv\`).
-- **Node.js**: v18+ & npm (for the React/Electron app).
-- **Ollama**: Installed and running locally (`http://localhost:11434`).
-- **Models Pulled in Ollama**:
-  ```powershell
-  ollama pull qwen2.5:7b
-  ollama pull qwen2.5:1.5b
-  ollama pull qwen2.5-coder:7b
-  ollama pull nomic-embed-text
-  ollama pull llava:7b
-  ```
+1. **💬 Chat View (Default AI Chat)**:
+   - Type messages directly to JARVIS and receive token-by-token streaming responses.
+   - Formatted with Markdown, code highlighting, copy buttons, and multi-session conversation history.
+   - Optional microphone dictation directly in the chat bar.
+
+2. **🎙️ Voice Chat View**:
+   - Dedicated voice conversation screen featuring the pulsating JARVIS Arc Reactor Orb.
+   - Push-to-talk button (`Tap to speak` / `Tap to stop`).
+   - Real-time audio waveform visualizer and full transcript display.
+   - Toggle voice speech responses (Mute/Unmute TTS).
+
+3. **🎨 Image Gen Studio**:
+   - Model selector: choose between **Auto (Best Available)**, **DreamShaper 8 (Local SD)**, and **Pollinations AI (Cloud)**.
+   - Prompt input supporting text typing (default) or voice dictation via microphone.
+   - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 768×768).
+   - Gallery strip with full-resolution preview, prompt reuse, and direct PNG download.
 
 ---
 
-## ⚡ Step-by-Step Instructions to Run JARVIS
+## 🚀 How to Run the Project
 
-### 1. Start Ollama
-Ensure the local Ollama service is active:
+### 1. Prerequisites Checklist
+1. **Ollama**:
+   ```powershell
+   ollama serve
+   ollama pull qwen2.5:7b
+   ollama pull qwen2.5:1.5b
+   ollama pull nomic-embed-text
+   ```
+2. **Virtual Environment**:
+   ```powershell
+   cd D:\JARVIS
+   .\venv\Scripts\Activate.ps1
+   ```
+
+---
+
+### 2. Running the Modern Desktop App (Recommended)
+Launch the complete desktop application with one command:
 ```powershell
-ollama serve
+cd D:\JARVIS\app
+npm run electron:dev
 ```
+*Electron will automatically start the backend server (`server/api_server.py`), poll until it is healthy, launch the Vite UI, and open the desktop window.*
 
 ---
 
-### 2. Run JARVIS Core (Voice & CLI Mode)
-Activate the Python virtual environment and run the main entry point:
+### 3. Running in Browser Mode (Alternative)
+```powershell
+# Terminal 1: Backend
+cd D:\JARVIS
+.\venv\Scripts\Activate.ps1
+python -m server.api_server
+
+# Terminal 2: Frontend
+cd D:\JARVIS\app
+npm run dev
+```
+Open `http://localhost:5173` in your browser.
+
+---
+
+### 4. Running the Voice Daemon (`main.py`)
+To use JARVIS purely as a voice-driven background assistant with wake word listening:
 ```powershell
 cd D:\JARVIS
 .\venv\Scripts\Activate.ps1
 python main.py
 ```
-*What happens:*
-- JARVIS loads models, initializes the tool registry, starts the wake-word listener, and greets you with: *"JARVIS online and ready, sir."*
-- You can say *"Hey Jarvis"* followed by a command, or type directly into the prompt.
+*JARVIS will initialize all subsystems and speak: "JARVIS online and ready, sir."*
 
 ---
 
-### 3. Run the Electron Desktop App (React UI)
-To launch the modern desktop UI:
-```powershell
-cd D:\JARVIS\app
-npm run start
-```
-*What happens:*
-- Starts the Vite development server and launches the native Electron desktop client connected to JARVIS's backend on `ws://localhost:8080`.
-
----
-
-### 4. Run the Standalone API Backend Server
-If running headless or integrating external clients:
-```powershell
-cd D:\JARVIS
-.\venv\Scripts\Activate.ps1
-python server\api_server.py
-```
-- REST endpoints and WebSocket stream are hosted at `http://127.0.0.1:8080`.
-- Browser HUD overlay available at `http://127.0.0.1:8080/hud`.
-
----
-
-### 5. Running Local Image Generation (SD Forge)
-The local image engine automatically starts in the background when requested. You can also run it manually:
+### 5. Running Local Image Generation (Forge API)
 ```powershell
 cd D:\JARVIS\tools\forge
 .\start_forge_api.bat
 ```
-- Hosts the REST API on `http://127.0.0.1:7860`.
-- All generated images are stored in `D:\JARVIS\generated_images\`.
+*Runs on port 7860 with `--xformers` and `--always-offload-from-vram`. If Forge is offline, JARVIS automatically routes image generation to Pollinations AI.*
 
 ---
 
-## 📁 Repository Structure
+## 🌟 Features & Activation Commands
 
-```
-D:\JARVIS\
-├── app\                    # Electron + React 19 Frontend
-│   ├── electron\main.js    # Electron native wrapper
-│   ├── src\                # UI components, state stores, views
-│   └── package.json        # Frontend scripts and dependencies
-├── config.py               # Global system configuration & hardware paths
-├── data\                   # Persistent storage (ChromaDB, SQLite, BM25)
-├── generated_images\       # Destination for all generated artwork
-├── hud\                    # Web-based HUD static assets
-├── main.py                 # Core CLI & Voice orchestration loop
-├── modules\                # Modular engines & tools
-│   ├── automation.py       # OS, app & clipboard control
-│   ├── code_engine.py      # Python sandbox executor
-│   ├── image_gen.py        # Local Forge SD + Pollinations fallback
-│   ├── intent.py           # Dual-model sub-200ms classifier
-│   ├── llm.py              # Intelligent LLM Engine (Ollama wrapper)
-│   ├── long_term_memory.py # ChromaDB + BM25 Hybrid RAG
-│   ├── react_agent.py      # Autonomous tool ReAct engine
-│   ├── stt.py              # Faster-Whisper audio transcription
-│   ├── tts.py              # Streaming Piper voice synthesizer
-│   ├── vision.py           # Screen capture, OCR & webcam analysis
-│   └── wake_word.py        # OpenWakeWord background detector
-├── server\                 # FastAPI backend server & WebSocket manager
-├── tools\
-│   └── forge\              # Isolated SD WebUI Forge portable package
-└── venv\                   # Project Python 3.11 virtual environment
-```
+| Capability | What It Does | How to Activate (Voice or Typed) |
+|---|---|---|
+| **Text Chat** | Conversational reasoning like ChatGPT/Claude | Type message in the **Chat** tab and press `Enter` |
+| **Dedicated Voice Chat** | Full-screen push-to-talk orb with transcript | Click the **Voice Chat** tab in the sidebar |
+| **Image Studio** | Multi-model image generation with gallery & presets | Click the **Image Gen** tab in the sidebar |
+| **Voice Barge-In / Interruption** | Silences JARVIS mid-speech in ~50 ms | Say *"Hey Jarvis"* while he speaks, talk over him, or press **Escape** |
+| **Local Image Generation** | Renders images via local Forge or Pollinations | *"Generate an image of an Iron Man helmet on marble"*, *"Create a picture of..."* |
+| **Screen Vision & OCR** | Analyzes screen content or webcam feed | *"Describe my screen"*, *"Read the text on my screen"*, *"Look at webcam"* |
+| **Autonomous Code Engine** | Authors & runs Python/PowerShell scripts | *"Write a python script to solve Fibonacci and run it"*, *"Execute code to..."* |
+| **Windows Automation** | Opens/closes apps, adjusts volume, screenshots | *"Open Notepad"*, *"Close Spotify"*, *"Volume up"*, *"Mute"*, *"Take a screenshot"* |
+| **System Diagnostics** | Real-time monitoring of CPU, RAM, & Disk | *"System status"*, *"Check system diagnostics"* |
+| **Web & Live Information** | Web scraping, live search, weather, news | *"Search the web for..."*, *"What's the weather in London?"*, *"Get top news"* |
+| **Hybrid RAG Memory** | Semantic + BM25 long-term fact storage | *"Remember that my favorite language is Python"*, *"Search memory for..."*, *"Clear memory"* |
+| **Document Ingestion** | Reads and embeds PDF, DOCX, TXT files | *"Ingest document D:\path\to\document.pdf"* |
+| **Smart Reminders** | Background scheduler with spoken alarms | *"Set a reminder in 10 minutes to take a break"*, *"Remind me at 5 PM"* |
+| **ReAct & UltraPlan** | Complex multi-step reasoning and background tasks | *"Check the weather, summarize it, and save to a file"* |

@@ -36,6 +36,10 @@ class DualModelIntentClassifier:
             f"'intent' (one of: {intent_list_str}) and 'entities' "
             "(keys: text, to, subject, app_name, file_path, url, query, code_lang, game_name, "
             "iot_device, iot_action, time, date, city, reminder_msg, duration, volume_level, song, topic, confirm). "
+            "IMPORTANT RULES:\n"
+            "- If the user says 'open youtube' or mentions visiting a website or web search, classify as 'open_url' with url='https://www.youtube.com' (or the specific site url), or 'web_search'.\n"
+            "- If the user says 'open dashboard', classify as 'open_dashboard'.\n"
+            "- If the user asks a question, chats, discusses, or greets, classify as 'chat'.\n"
             "No markdown. No explanation. Pure JSON only."
         )
 
