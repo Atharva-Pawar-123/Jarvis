@@ -1,0 +1,53 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron:start": "electron .",
+    "start": "concurrently \"npm run dev\" \"npm run electron:start\"",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "keywords": [],
+  "build": {
+    "directories": {
+      "output": "build_output"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ]
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "^10.5.2",
+    "concurrently": "^10.0.3",
+    "electron": "^42.5.1",
+    "electron-builder": "^26.15.3",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.1.0"
+  },
+  "dependencies": {
+    "axios": "^1.18.1",
+    "framer-motion": "^12.42.0",
+    "lucide-react": "^1.22.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "socket.io-client": "^4.8.3",
+    "zustand": "^5.0.14"
+  }
+}

@@ -114,6 +114,13 @@ class StdioTransport:
                 bufsize=1,  # line-buffered
             )
             logger.info(f"MCP stdio process started: {' '.join(full_cmd)} (PID {self.process.pid})")
+            
+            # Drain stderr in a background thread to prevent deadlocks
+            self._stderr_thread = threading.Thread(
+                target=self._drain_stderr, daemon=True,
+                name=f"mcp-stderr-{self.process.pid}"
+            )
+            self._stderr_thread.start()
         except FileNotFoundError:
             logger.error(f"MCP server command not found: {self.command}")
             raise
@@ -177,6 +184,17 @@ class StdioTransport:
     @property
     def is_alive(self) -> bool:
         return self.process is not None and self.process.poll() is None
+
+    def _drain_stderr(self) -> None:
+        """Continuously read stderr so the pipe buffer never fills up (preventing deadlock)."""
+        try:
+            while self.process and self.process.stderr:
+                line = self.process.stderr.readline()
+                if not line:
+                    break
+                logger.debug(f"MCP stderr [{self.command}]: {line.rstrip()}")
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

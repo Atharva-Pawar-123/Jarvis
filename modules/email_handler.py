@@ -141,6 +141,10 @@ class EmailHandler:
                 "Please check your Gmail credentials in the .env file."
             )
 
+    def read_inbox(self, count: int = 5) -> str:
+        """Alias for read_emails to maintain compatibility with intent dispatchers."""
+        return self.read_emails(count)
+
     def read_emails(self, count: int = 5) -> str:
         """
         Connect to Gmail via IMAP and fetch the subjects of the most recent emails.
@@ -181,11 +185,15 @@ class EmailHandler:
                     if isinstance(response_part, tuple):
                         # pylint: disable=unsubscriptable-object
                         msg = email.message_from_bytes(response_part[1])
-                        subject, encoding = decode_header(msg["Subject"])[0]
-                        if isinstance(subject, bytes):
-                            subject = subject.decode(encoding or "utf-8")
-                        sender = msg.get("From")
-                        results.append(f"From {sender}: {subject}")
+                        raw_sub = msg.get("Subject") or "No Subject"
+                        subject_text = ""
+                        for part, enc in decode_header(raw_sub):
+                            if isinstance(part, bytes):
+                                subject_text += part.decode(enc or "utf-8", errors="replace")
+                            else:
+                                subject_text += str(part)
+                        sender = msg.get("From", "Unknown Sender")
+                        results.append(f"From {sender}: {subject_text}")
             
             mail.close()
             mail.logout()

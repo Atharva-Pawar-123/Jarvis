@@ -60,7 +60,8 @@ class ReminderScheduler:
         """
         try:
             # Handle relative times like "in 10 minutes" or "in 1 hour and 30 minutes"
-            if "in" in time_str.lower():
+            # Use word-boundary match to avoid false positives ("interesting", "information")
+            if re.search(r'\bin\b', time_str.lower()):
                 now = datetime.now()
                 minutes = 0
                 hours = 0
@@ -92,8 +93,9 @@ class ReminderScheduler:
                 if due_time < datetime.now():
                     due_time += timedelta(days=1)
 
+            import uuid
             reminder = {
-                "id": int(time.time()),
+                "id": uuid.uuid4().hex[:12],
                 "due_at": due_time.isoformat(),
                 "task": task,
                 "triggered": False

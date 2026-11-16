@@ -33,14 +33,61 @@ logger = logging.getLogger(__name__)
 def calculate_usd_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """
     Calculate USD cost for an LLM call.
-    Returns 0.0 for all models since JARVIS is completely local.
+    Returns estimated cost for cloud models, and 0.0 for local Ollama models.
     """
-    return 0.0
+    model_lower = model.lower()
+    if any(m in model_lower for m in ["ollama", "qwen", "llama", "deepseek", "mistral", "nomic"]):
+        return 0.0
+    # Cloud model pricing estimate (e.g. Gemini)
+    input_rate = 0.075 / 1_000_000
+    output_rate = 0.30 / 1_000_000
+    return (input_tokens * input_rate) + (output_tokens * output_rate)
 
 
 # ---------------------------------------------------------------------------
 # CostTracker — the main singleton
 # ---------------------------------------------------------------------------
+
+@dataclass
+class SessionStats:
+    session_id: str
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    total_calls: int = 0
+    model_breakdown: Dict[str, dict] = field(default_factory=dict)
+    date: str = field(default_factory=lambda: str(date.today()))
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data):
+        known = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in known}
+        return cls(**filtered)
+
+
+@dataclass
+class ModelUsage:
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    call_count: int = 0
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data):
+        known = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in known}
+        return cls(**filtered)
+
+
+COST_DB_PATH = config.DATA_DIR / "cost_tracker.json"
+
 
 class CostTracker:
     """

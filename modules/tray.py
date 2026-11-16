@@ -91,7 +91,7 @@ class JarvisTray:
         logger.info("Restarting JARVIS via Tray Icon...")
         if self.icon:
             self.icon.stop()
-        os.execv(sys.executable, ['python'] + sys.argv)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def _on_shutdown(self) -> None:
         """

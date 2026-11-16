@@ -20,10 +20,11 @@ class MoodDetector:
     def __init__(self):
         self._is_available = False
         try:
+            import deepface
             self._is_available = True
             logger.info("MoodDetector ready (DeepFace available).")
-        except ImportError:
-            logger.warning("DeepFace not installed. Mood detection will be offline.")
+        except (ImportError, Exception) as exc:
+            logger.warning(f"DeepFace not available ({exc}). Mood detection will be offline.")
             
     def is_available(self) -> bool:
         return self._is_available

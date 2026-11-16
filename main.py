@@ -35,7 +35,7 @@ from modules.hud import JarvisHUD
 from modules.memory import ConversationMemory
 from modules.api_server import hud_server
 
-def build_tool_registry(automation, email_handler, whatsapp_handler, web_search, browser, vision, memory, scheduler, image_gen, game_manager, iot_handler, dashboard, weather, news, code_engine):
+def build_tool_registry(automation, email_handler, whatsapp_handler, web_search, browser, vision, memory, scheduler, image_gen, game_manager, iot_handler, dashboard, weather, news, code_engine, hitl_gate):
     """Builds a dictionary of tools to pass to the ReAct agent."""
     return {
         "tell_time": {"func": lambda: f"The time is {datetime.now().strftime('%I:%M %p')}, sir.", "desc": "Get current time"},
@@ -47,15 +47,15 @@ def build_tool_registry(automation, email_handler, whatsapp_handler, web_search,
         "mute": {"func": lambda: automation.mute_toggle(), "desc": "Mute or unmute volume"},
         "take_screenshot": {"func": lambda: automation.take_screenshot(), "desc": "Take a screenshot"},
         "type_text": {"func": lambda text: automation.type_text(text), "desc": "Type text into active window"},
-        "system_status": {"func": lambda: automation.system_status(), "desc": "Check CPU, RAM, Disk"},
+        "system_status": {"func": lambda: automation.get_system_status(), "desc": "Check CPU, RAM, Disk"},
         "create_file": {"func": lambda file_path, text: automation.create_file(file_path, text), "desc": "Create a file with text"},
         "read_file": {"func": lambda file_path: automation.read_file(file_path), "desc": "Read text from a file"},
-        "delete_file": {"func": lambda file_path: hitl_gate("delete_file", automation.delete_file, file_path), "desc": "Delete a file"},
-        "send_email": {"func": lambda to, subject, text: email_handler.compose_and_send({"to": to, "subject": subject, "text": text}), "desc": "Send an email"},
-        "web_search": {"func": lambda query: web_search.search_and_answer(query), "desc": "Search the web"},
+        "delete_file": {"func": lambda file_path: hitl_gate("delete_file", automation.delete_item, file_path), "desc": "Delete a file"},
+        "send_email": {"func": lambda to, subject, text: email_handler.compose_and_send({"to": to, "subject": subject, "body": text, "text": text}), "desc": "Send an email"},
+        "web_search": {"func": lambda query: web_search.quick_search(query), "desc": "Search the web"},
         "open_url": {"func": lambda url: browser.open_url(url), "desc": "Open a URL in browser"},
         "describe_screen": {"func": lambda: vision.describe_screen(), "desc": "Analyze what is on the screen"},
-        "read_screen_text": {"func": lambda: vision.ocr_screen(), "desc": "OCR text from screen"},
+        "read_screen_text": {"func": lambda: vision.extract_text(), "desc": "OCR text from screen"},
         "search_memory": {"func": lambda query: memory.search(query), "desc": "Search past conversation memory"},
         "ingest_document": {"func": lambda file_path: memory.ingest_document(file_path), "desc": "Read a PDF, DOCX, or TXT into memory"},
         "set_reminder": {"func": lambda time, reminder_msg: scheduler.add_reminder(time, reminder_msg), "desc": "Set a reminder"},
@@ -127,27 +127,6 @@ def main():
             
     ultraplan = UltraPlanCoordinator(llm, tts.speak, handle_ultraplan_hud)
     
-    tools = build_tool_registry(
-        automation, email_handler, whatsapp_handler, web_search, browser, vision, 
-        memory, scheduler, image_gen, game_monitor, iot_handler, dashboard, get_weather, get_news, code_engine
-    )
-    
-    react_agent = ReActAgent(llm, tools, memory)
-    
-    # Event flag for wake word
-    wake_event = threading.Event()
-    
-    def on_wake_word_detected():
-        wake_event.set()
-        
-    wake_detector = WakeWordDetector(on_wake_word_detected)
-    
-    # 6. Start Services
-    wake_detector.start()
-    
-    # Start API server for HUD in background thread
-    hud_server.start()
-    
     def hitl_gate(action_name: str, fn: callable, *args) -> str:
         tts.speak(f"Sir, I'm about to {action_name.replace('_',' ')}. Please confirm.")
         update_hud_state("listening")
@@ -157,9 +136,68 @@ def main():
             return fn(*args)
         return "Action cancelled, sir."
 
-    SIMPLE_INTENTS = ["tell_time", "tell_date", "volume_up", "volume_down",
-                      "mute", "take_screenshot", "open_app", "close_app",
-                      "open_dashboard", "kill_dashboard", "clear_memory"]
+    tools = build_tool_registry(
+        automation, email_handler, whatsapp_handler, web_search, browser, vision, 
+        memory, scheduler, image_gen, game_monitor, iot_handler, dashboard, get_weather, get_news, code_engine,
+        hitl_gate
+    )
+    
+    react_agent = ReActAgent(llm, tools, memory)
+
+    # Event flag for wake word
+    wake_event = threading.Event()
+    
+    def on_wake_word_detected():
+        wake_event.set()
+
+    def on_speech_interrupted():
+        """Handle mid-speech voice barge-in or wake word during TTS."""
+        logging.info("Interruption triggered: Stopping TTS and activating listener.")
+        tts.stop()
+        wake_event.set()
+        
+    wake_detector = WakeWordDetector(
+        callback=on_wake_word_detected,
+        on_interrupt=on_speech_interrupted,
+        tts_engine=tts
+    )
+    
+    # Start Services
+    wake_detector.start()
+    
+    # Start API server for HUD in background thread
+    hud_server.start()
+
+    # ── Keyboard interrupt listener (Escape to stop JARVIS mid-speech) ──
+    def _keyboard_interrupt_listener():
+        """Background thread: press Escape to silence JARVIS mid-speech."""
+        try:
+            import msvcrt
+            while True:
+                if msvcrt.kbhit():
+                    key = msvcrt.getch()
+                    # Escape key = b'\x1b'
+                    if key == b'\x1b' and tts.is_speaking:
+                        logging.info("Escape pressed — interrupting JARVIS speech.")
+                        tts.stop()
+                time.sleep(0.05)
+        except Exception as e:
+            logging.warning(f"Keyboard interrupt listener failed: {e}")
+
+    threading.Thread(target=_keyboard_interrupt_listener, daemon=True,
+                     name="KBD-Interrupt").start()
+
+    SIMPLE_INTENTS = [
+        "tell_time", "tell_date", "volume_up", "volume_down", "mute",
+        "take_screenshot", "open_app", "close_app", "open_dashboard",
+        "kill_dashboard", "clear_memory", "type_text", "clipboard_read",
+        "clipboard_write", "system_status", "create_file", "read_file",
+        "delete_file", "move_file", "list_folder", "send_email", "read_email",
+        "send_whatsapp", "web_search", "open_url", "open_incognito",
+        "describe_screen", "read_screen_text", "describe_webcam",
+        "search_memory", "ingest_document", "set_reminder", "generate_image",
+        "open_gallery", "open_game", "control_iot", "weather", "get_news"
+    ]
                       
     def dispatch_intent(intent_name: str, entities: dict, raw_text: str) -> str:
         handlers = {
@@ -172,12 +210,12 @@ def main():
             "mute":             lambda: automation.mute_toggle(),
             "take_screenshot":  lambda: automation.take_screenshot(),
             "type_text":        lambda: automation.type_text(entities.get("text", "")),
-            "clipboard_read":   lambda: automation.read_clipboard(),
-            "clipboard_write":  lambda: automation.write_clipboard(entities.get("text", "")),
-            "system_status":    lambda: automation.system_status(),
+            "clipboard_read":   lambda: automation.paste_clipboard(),
+            "clipboard_write":  lambda: automation.copy_clipboard(entities.get("text", "")),
+            "system_status":    lambda: automation.get_system_status(),
             "create_file":      lambda: automation.create_file(entities.get("file_path", ""), entities.get("text", "")),
             "read_file":        lambda: automation.read_file(entities.get("file_path", "")),
-            "delete_file":      lambda: hitl_gate("delete_file", automation.delete_file, entities.get("file_path", "")),
+            "delete_file":      lambda: hitl_gate("delete_file", automation.delete_item, entities.get("file_path", "")),
             "move_file":        lambda: automation.move_file(entities.get("file_path", ""), entities.get("text", "")),
             "list_folder":      lambda: automation.list_folder(entities.get("file_path", "")),
             "send_email":       lambda: email_handler.compose_and_send(entities),
@@ -187,7 +225,7 @@ def main():
             "open_url":         lambda: browser.open_url(entities.get("url", "")),
             "open_incognito":   lambda: browser.open_incognito(entities.get("url", "")),
             "describe_screen":  lambda: vision.describe_screen(),
-            "read_screen_text": lambda: vision.ocr_screen(),
+            "read_screen_text": lambda: vision.extract_text(),
             "describe_webcam":  lambda: vision.answer_about_webcam(raw_text),
             "search_memory":    lambda: memory.search(entities.get("query", "")),
             "ingest_document":  lambda: memory.ingest_document(entities.get("file_path", "")),
@@ -198,8 +236,8 @@ def main():
             "open_gallery":     lambda: automation.open_app(str(config.IMAGES_DIR)),
             "open_game":        lambda: automation.open_app(entities.get("game_name", "")),
             "control_iot":      lambda: iot_handler.control(entities.get("iot_device", ""), entities.get("iot_action", "")),
-            "open_dashboard":   lambda: dashboard.toggle(),
-            "kill_dashboard":   lambda: dashboard.toggle(),
+            "open_dashboard":   lambda: dashboard.show(),
+            "kill_dashboard":   lambda: dashboard.hide(),
             "weather":          lambda: get_weather(entities.get("city", "Mumbai")),
             "get_news":         lambda: get_news(),
             "clear_memory":     lambda: (conversation_memory.clear(), "Memory cleared, sir.")[1],
@@ -213,7 +251,7 @@ def main():
                 logging.error(f"Intent {intent_name} failed: {e}", exc_info=True)
                 return error_msg
         else:
-            return llm.generate(conversation_memory.get_messages(), stream=True)
+            return llm.generate(conversation_memory.get_messages(), stream=False)
 
     # Boot complete
     tts.speak("JARVIS online and ready, sir.")
@@ -226,6 +264,9 @@ def main():
                 raw_text = hud_server.command_queue.get()
                 if raw_text == "__TOGGLE_MUTE__":
                     automation.mute_toggle()
+                    continue
+                if raw_text == "__STOP_SPEECH__":
+                    tts.stop()
                     continue
             else:
                 # Wait for wake word
@@ -270,7 +311,8 @@ def main():
             elif intent_name == "chat" and complexity >= config.REACT_THRESHOLD:
                 # Complex question — use full ReAct + CoT
                 response = react_agent.run(raw_text, messages)
-                tts.flush()
+                if response:
+                    tts.speak(response)
                 conversation_memory.add_user_message(raw_text)
                 conversation_memory.add_assistant_message(response)
                 

@@ -1,0 +1,266 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════
+   JARVIS DESIGN SYSTEM — CSS CUSTOM PROPERTIES
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Work Mode (Default — Iron Man Cyan) ─────────────────────── */
+  --bg-primary:     #040912;
+  --bg-secondary:   #080F1A;
+  --bg-tertiary:    #0C1525;
+  --bg-hover:       #111E30;
+  --border:         rgba(0, 200, 255, 0.12);
+  --border-bright:  rgba(0, 200, 255, 0.35);
+  --accent:         #00C8FF;
+  --accent-glow:    rgba(0, 200, 255, 0.15);
+  --accent-rgb:     0, 200, 255;
+  --violet:         #9B3FFF;
+  --violet-glow:    rgba(155, 63, 255, 0.12);
+  --red:            #FF1744;
+  --text-primary:   rgba(220, 240, 255, 0.92);
+  --text-secondary: rgba(140, 180, 210, 0.65);
+  --text-tertiary:  rgba(80, 130, 170, 0.5);
+  --font-mono:      'Share Tech Mono', 'Courier New', monospace;
+  --font-display:   'Orbitron', system-ui, sans-serif;
+  --font-sans:      'Inter', system-ui, sans-serif;
+}
+
+/* ── Focus Mode (Amber/Gold) ─────────────────────────────────── */
+[data-theme="focus"] {
+  --bg-primary:     #0A0804;
+  --bg-secondary:   #120E06;
+  --bg-tertiary:    #1A1408;
+  --bg-hover:       #241E0E;
+  --border:         rgba(255, 179, 0, 0.12);
+  --border-bright:  rgba(255, 179, 0, 0.35);
+  --accent:         #FFB300;
+  --accent-glow:    rgba(255, 179, 0, 0.15);
+  --accent-rgb:     255, 179, 0;
+  --violet:         #FF6D00;
+  --violet-glow:    rgba(255, 109, 0, 0.12);
+  --red:            #FF1744;
+  --text-primary:   rgba(255, 240, 210, 0.92);
+  --text-secondary: rgba(210, 180, 120, 0.65);
+  --text-tertiary:  rgba(170, 140, 80, 0.5);
+}
+
+/* ── Casual Mode (Violet/Purple) ─────────────────────────────── */
+[data-theme="casual"] {
+  --bg-primary:     #080412;
+  --bg-secondary:   #0E081A;
+  --bg-tertiary:    #150C25;
+  --bg-hover:       #1E1130;
+  --border:         rgba(155, 63, 255, 0.12);
+  --border-bright:  rgba(155, 63, 255, 0.35);
+  --accent:         #9B3FFF;
+  --accent-glow:    rgba(155, 63, 255, 0.15);
+  --accent-rgb:     155, 63, 255;
+  --violet:         #00C8FF;
+  --violet-glow:    rgba(0, 200, 255, 0.12);
+  --red:            #FF1744;
+  --text-primary:   rgba(230, 220, 255, 0.92);
+  --text-secondary: rgba(160, 140, 210, 0.65);
+  --text-tertiary:  rgba(110, 90, 170, 0.5);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════════ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(var(--accent-rgb), 0.3);
+  color: white;
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--accent-rgb), 0.4);
+}
+
+/* ── Transitions ───────────────────────────────────────────────── */
+button, a, input, textarea, select {
+  transition: all 0.15s ease;
+}
+
+textarea {
+  resize: none;
+}
+
+/* ── Title Bar Drag Region ─────────────────────────────────────── */
+.title-bar {
+  -webkit-app-region: drag;
+}
+.title-bar button, .title-bar input, .title-bar a {
+  -webkit-app-region: no-drag;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   JARVIS ORB ANIMATIONS
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes orb-pulse-green {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 230, 118, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(0, 230, 118, 0.7); }
+}
+
+@keyframes orb-rotate-amber {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes orb-pulse-violet {
+  0%, 100% { box-shadow: 0 0 8px rgba(155, 63, 255, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(155, 63, 255, 0.7); }
+}
+
+.orb-idle      { animation: orb-breathe 2.5s ease-in-out infinite; }
+.orb-listening { animation: orb-pulse-green 1.2s ease-in-out infinite; }
+.orb-thinking  { animation: orb-rotate-amber 2s linear infinite; }
+.orb-speaking  { animation: orb-pulse-violet 1s ease-in-out infinite; }
+.orb-muted     { opacity: 0.4; filter: grayscale(0.6); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   STREAMING CURSOR
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-cursor::after {
+  content: '▎';
+  color: var(--accent);
+  animation: blink-cursor 0.8s step-end infinite;
+  margin-left: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   VOICE WAVEFORM BARS
+   ═══════════════════════════════════════════════════════════════════ */
+
+.waveform-bar {
+  width: 3px;
+  border-radius: 3px;
+  transition: height 0.05s ease;
+  background: linear-gradient(
+    to top,
+    var(--accent),
+    var(--violet)
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MARKDOWN CONTENT STYLING
+   ═══════════════════════════════════════════════════════════════════ */
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content p {
+  margin-bottom: 0.75rem;
+  line-height: 1.7;
+}
+
+.markdown-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-content ul, .markdown-content ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--text-secondary);
+}
+
+.markdown-content code:not(pre code) {
+  background: var(--bg-tertiary);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--accent);
+}
+
+.markdown-content pre {
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  overflow: hidden;
+}

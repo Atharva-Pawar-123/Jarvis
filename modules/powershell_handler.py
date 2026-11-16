@@ -25,7 +25,8 @@ class PowerShellHandler:
         """
         # Fast path for obvious safe commands to save API calls
         safe_prefixes = ("echo", "get-", "dir", "ls", "pwd", "write-output")
-        if command.lower().strip().startswith(safe_prefixes) and "|" not in command:
+        cmd_lower = command.lower().strip()
+        if cmd_lower.startswith(safe_prefixes) and "|" not in command and ";" not in command and "&&" not in command:
             return {"risk": "LOW", "explanation": "This is a safe, read-only command."}
             
         if not self.llm:
@@ -65,7 +66,13 @@ EXPLANATION: [One short sentence explaining why to the user]"""
         if not command:
             return "I need a command to execute, sir."
 
-        logger.info(f"Executing PowerShell command: {command}")
+        # Run risk classification before execution
+        risk = self.classify_risk(command)
+        if risk["risk"] == "HIGH":
+            logger.warning(f"HIGH risk command blocked: {command} — {risk['explanation']}")
+            return f"I've classified this command as high risk, sir. {risk['explanation']} Please confirm you'd like me to proceed."
+
+        logger.info(f"Executing PowerShell command (risk={risk['risk']}): {command}")
         
         try:
             # We use -ExecutionPolicy Bypass to ensure scripts can run

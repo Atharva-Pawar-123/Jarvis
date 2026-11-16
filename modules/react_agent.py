@@ -30,10 +30,10 @@ class ReActAgent:
         react_prompt = (
             "You are JARVIS executing a complex request. You have access to tools.\n"
             "For each step, decide: do you need a tool, or can you answer directly?\n\n"
-            "FORMAT each step exactly like this (do not deviate):\n"
-            "Thought: [your reasoning about what to do next]\n"
-            "Action: [tool_name] or [FINAL_ANSWER]\n"
-            "Action Input: [JSON parameters for the tool] or [your final response]\n\n"
+            "FORMAT each step exactly like this (do not use brackets):\n"
+            "Thought: your reasoning about what to do next\n"
+            "Action: tool_name or FINAL_ANSWER\n"
+            "Action Input: JSON parameters for the tool (e.g. {\"query\": \"search term\"}) or your final response\n\n"
             f"{self.get_tool_descriptions()}\n\n"
             "Stop when you have enough information to give a final answer.\n"
             "Use FINAL_ANSWER as the Action when done."
@@ -59,6 +59,8 @@ class ReActAgent:
             # 2. PARSE
             action = self._extract(response, "Action:")
             action_input = self._extract(response, "Action Input:")
+            if action:
+                action = action.strip("[]'\" \t")
             
             if not action:
                 # If LLM broke format, gently push it back
@@ -77,15 +79,25 @@ class ReActAgent:
                 # Try to parse Action Input as JSON
                 try:
                     params = json.loads(action_input)
-                except json.JSONDecodeError:
-                    # If it's not valid JSON, pass it as a raw string to the first arg
-                    params = {"text": action_input}
+                except (json.JSONDecodeError, TypeError):
+                    # If it's not valid JSON, treat as a string param
+                    params = {"text": action_input} if action_input else {}
                     
                 tool_func = self.tools[action]["func"]
                 if isinstance(params, dict):
-                    result = tool_func(**params)
+                    try:
+                        result = tool_func(**params)
+                    except TypeError:
+                        if not params or not any(params.values()):
+                            result = tool_func()
+                        else:
+                            first_val = next(iter(params.values()))
+                            result = tool_func(first_val)
                 else:
-                    result = tool_func(params)
+                    try:
+                        result = tool_func(params)
+                    except TypeError:
+                        result = tool_func()
                     
                 observation = f"Observation: {result}"
                 
@@ -106,11 +118,12 @@ class ReActAgent:
     def _extract(self, text: str, prefix: str) -> str:
         """Helper to extract values like 'Action: x' from the LLM response."""
         for line in text.split('\n'):
-            if line.strip().startswith(prefix):
-                return line.replace(prefix, "").strip()
+            line_str = line.strip()
+            if line_str.lower().startswith(prefix.lower()):
+                return line_str[len(prefix):].strip()
         # Fallback regex if it spans multiple lines (mostly for Action Input)
-        if prefix == "Action Input:":
-            match = re.search(r'Action Input:(.*)', text, re.DOTALL)
+        if prefix.lower().startswith("action input"):
+            match = re.search(r'Action Input:\s*(.*)', text, re.DOTALL | re.IGNORECASE)
             if match:
                 return match.group(1).strip()
         return ""

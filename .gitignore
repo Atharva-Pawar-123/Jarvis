@@ -26,7 +26,12 @@ scratch/
 data/
 models/
 
-# OS / Editor
-.vscode/
-.DS_Store
-Thumbs.db
+# Tools & Large Binaries
+tools/
+app/node_modules/
+app/dist/
+app/build_output/
+app/release/
+*.7z
+*.whl
+*.safetensors

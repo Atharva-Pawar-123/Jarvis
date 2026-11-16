@@ -25,6 +25,10 @@ class WebSearchEngine:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
 
+    def search_and_answer(self, query: str) -> str:
+        """Alias for quick_search to maintain compatibility with intent dispatchers."""
+        return self.quick_search(query)
+
     def quick_search(self, query: str) -> str:
         """
         Scrape DuckDuckGo Lite HTML for the top results to provide a quick answer.

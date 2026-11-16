@@ -75,6 +75,12 @@ class HUDServer:
             self.command_queue.put("__TOGGLE_MUTE__")
             return {"status": "ok"}
 
+        @self.app.post("/api/stop")
+        async def stop_speech():
+            """Interrupt JARVIS mid-speech from the HUD or any HTTP client."""
+            self.command_queue.put("__STOP_SPEECH__")
+            return {"status": "ok"}
+
     def _mount_static(self):
         # Mount the HUD directory to serve the frontend
         hud_dir = Path(config.BASE_DIR) / "hud"

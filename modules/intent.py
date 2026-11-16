@@ -47,7 +47,13 @@ class DualModelIntentClassifier:
             if now - timestamp < 180:
                 return entry
                 
-        messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": user_text}]
+        messages = [{"role": "system", "content": self.system_prompt}]
+        if conversation_history:
+            # Append last 2-3 turns of conversation history so classifier understands context (e.g., follow-ups)
+            for msg in conversation_history[-4:]:
+                if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": user_text})
         
         # Step 2: Try fast model
         try:
