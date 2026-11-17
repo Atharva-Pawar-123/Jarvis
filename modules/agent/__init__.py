@@ -1,7 +1,10 @@
 """
 modules/agent/__init__.py
 """
-from .tool_registry import StructuredToolRegistry, ToolDefinition, ToolExecutionResult
+from .tool_registry import StructuredToolRegistry, CanonicalTool, ToolExecutionResult
 from .orchestrator import UnifiedAgentOrchestrator
 
-__all__ = ["StructuredToolRegistry", "ToolDefinition", "ToolExecutionResult", "UnifiedAgentOrchestrator"]
+# Backward compatibility alias
+ToolDefinition = CanonicalTool
+
+__all__ = ["StructuredToolRegistry", "CanonicalTool", "ToolDefinition", "ToolExecutionResult", "UnifiedAgentOrchestrator"]

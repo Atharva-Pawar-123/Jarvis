@@ -7,13 +7,15 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the **V2 Autonomous Intelligence Upgrade**, JARVIS evolves from a simple command-response assistant into a true goal-driven cognitive system featuring:
-- **Unified Agentic Core**: Seamlessly bridges text chat, voice interactions, and background workflows into a single reasoning loop.
-- **Strict Security & Sandboxing**: Hardened execution environment with an action-risk permission engine (human-in-the-loop approvals for sensitive tasks).
-- **4-Tier Cognitive Memory**: Working memory, Episodic logs, Semantic RAG facts (with importance scoring and decay), and Procedural habit learning.
-- **Restart-Surviving Task Manager**: Checkpointed task execution stored in SQLite.
-- **Extensible Skill & MCP Ecosystem**: Modular plugin architecture supporting standard Model Context Protocol (MCP) servers.
-- **Hardware-Aware GPU Scheduler**: Intelligently manages the 6GB VRAM ceiling to prevent CUDA Out-of-Memory crashes.
+With the **V2.1 Reliability & Production Hardening Sprint**, JARVIS evolves from a reactive assistant into an enterprise-grade desktop intelligence platform:
+- **Unified Runtime Container (`JarvisRuntime`)**: Single-source-of-truth container holding all module singletons, eliminating fragmented module-level globals across FastAPI and the voice daemon.
+- **Canonical Tool Protocol & Schema Validation**: Strongly typed Pydantic parameter schemas (`CanonicalTool`) providing exact contracts for LLM tool calling and self-documenting APIs.
+- **Interactive Security Authorization Gate**: High-risk operations (code execution, emails, deletions) trigger interactive WebSocket approval cards with 45-second timeouts and in-memory session caches.
+- **Hardened Subprocess Sandbox**: Sanitized environments stripping all API tokens, cloud credentials, and sensitive environment variables (`GMAIL_*`, `AWS_*`, `*SECRET*`, `*PASSWORD*`) with execution timeouts.
+- **Restart-Surviving Task Manager**: Checkpointed state machine in SQLite with live `asyncio.Event` cancellation tokens and automatic recovery of interrupted tasks upon reboot.
+- **Tactical Desktop HUD & Task Command Center**: Real-time circular meters for CPU, RAM, GPU VRAM & temperature, interactive 4-tier memory inspector (Working, Episodic, Semantic, Procedural), and background goal launcher.
+- **Hardware-Aware GPU Scheduler**: Manages mutually exclusive execution between Qwen LLM reasoning and Stable Diffusion Forge image generation to eliminate CUDA Out-of-Memory crashes on 6GB VRAM GPUs.
+- **Automated Regression Test Suite**: 61 comprehensive tests covering orchestrator reasoning, permissions, sandbox security, background tasks, and GPU scheduling.
 
 ---
 
@@ -150,6 +152,16 @@ cd D:\JARVIS\tools\forge
 .\start_forge_api.bat
 ```
 *Runs on port 7860 with `--xformers` and `--always-offload-from-vram`. If Forge is offline, JARVIS automatically routes image generation to Pollinations AI.*
+
+---
+
+### 6. Running the Automated Test Suite (Pytest)
+To run the full V2.1 regression test suite (61 tests covering orchestrator, permissions, sandbox, tasks, and GPU scheduler):
+```powershell
+cd D:\JARVIS
+.\venv\Scripts\Activate.ps1
+python -m pytest tests/v2/ -v
+```
 
 ---
 
