@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('jarvisAPI', {
   close: () => ipcRenderer.send('window-close'),
   openLink: (url) => ipcRenderer.send('open-external', url),
 
+  // Local authentication token bridge
+  getAuthToken: () => ipcRenderer.sendSync('get-auth-token'),
+
   // Event listeners from main process
   onMuteToggle: (cb) => ipcRenderer.on('toggle-mute', cb),
   onWindowState: (cb) => ipcRenderer.on('window-state', (_, s) => cb(s)),

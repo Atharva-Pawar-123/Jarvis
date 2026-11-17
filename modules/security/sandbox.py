@@ -109,6 +109,7 @@ class HardenedSandbox:
 
         run_dir = Path(tempfile.mkdtemp(prefix="run_", dir=str(self.base_dir)))
         script_path = run_dir / "task_script.py"
+        job_handle = None
 
         try:
             with open(script_path, "w", encoding="utf-8") as f:
@@ -117,34 +118,105 @@ class HardenedSandbox:
             sub_env = self._build_clean_environment(env_vars)
             logger.info(f"Executing script in sandbox: {run_dir}")
 
+            # Windows Job Object resource limit enforcement
+            if sys.platform == "win32":
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+
+                    job_handle = ctypes.windll.kernel32.CreateJobObjectW(None, None)
+                    if job_handle:
+                        # JobObjectExtendedLimitInformation = 9
+                        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+                        # JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x0100
+                        class IO_COUNTERS(ctypes.Structure):
+                            _fields_ = [
+                                ('ReadOperationCount', ctypes.c_uint64),
+                                ('WriteOperationCount', ctypes.c_uint64),
+                                ('OtherOperationCount', ctypes.c_uint64),
+                                ('ReadTransferCount', ctypes.c_uint64),
+                                ('WriteTransferCount', ctypes.c_uint64),
+                                ('OtherTransferCount', ctypes.c_uint64),
+                            ]
+
+                        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+                            _fields_ = [
+                                ('BasicLimitInformation', ctypes.c_byte * 48),
+                                ('IoInfo', IO_COUNTERS),
+                                ('ProcessMemoryLimit', ctypes.c_size_t),
+                                ('JobMemoryLimit', ctypes.c_size_t),
+                                ('PeakProcessMemoryLimit', ctypes.c_size_t),
+                                ('PeakJobMemoryLimit', ctypes.c_size_t),
+                            ]
+
+                        limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+                        # Set memory limit in bytes
+                        mem_bytes = self.memory_limit_mb * 1024 * 1024
+                        limits.ProcessMemoryLimit = mem_bytes
+                        limits.JobMemoryLimit = mem_bytes
+                        
+                        # Set limit flags at byte offset 16 (LimitFlags in JOBOBJECT_BASIC_LIMIT_INFORMATION)
+                        limit_flags = 0x2000 | 0x0100  # KILL_ON_JOB_CLOSE | PROCESS_MEMORY
+                        ctypes.memmove(
+                            ctypes.addressof(limits),
+                            ctypes.c_byte * 48,
+                            0
+                        )
+                        ctypes.c_uint32.from_buffer(limits.BasicLimitInformation, 16).value = limit_flags
+
+                        ctypes.windll.kernel32.SetInformationJobObject(
+                            job_handle,
+                            9,
+                            ctypes.byref(limits),
+                            ctypes.sizeof(limits)
+                        )
+                except Exception as job_err:
+                    logger.warning(f"Could not configure Windows Job Object: {job_err}")
+
             # Subprocess execution with isolated Python environment (-I)
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 [sys.executable, "-I", str(script_path)],
                 cwd=str(run_dir),
                 env=sub_env,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_seconds
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
 
-            success = proc.returncode == 0
-            return SandboxedExecutionResult(
-                success=success,
-                stdout=proc.stdout,
-                stderr=proc.stderr,
-                exit_code=proc.returncode,
-                timeout=False
-            )
+            # Assign process to Job Object on Windows
+            if sys.platform == "win32" and job_handle:
+                try:
+                    import ctypes
+                    # PROCESS_SET_QUOTA | PROCESS_TERMINATE = 0x0100 | 0x0001
+                    proc_handle = ctypes.windll.kernel32.OpenProcess(0x0100 | 0x0001, False, proc.pid)
+                    if proc_handle:
+                        ctypes.windll.kernel32.AssignProcessToJobObject(job_handle, proc_handle)
+                        ctypes.windll.kernel32.CloseHandle(proc_handle)
+                except Exception as assign_err:
+                    logger.warning(f"Failed to assign process to Job Object: {assign_err}")
 
-        except subprocess.TimeoutExpired:
-            logger.warning(f"Script execution timed out after {self.timeout_seconds} seconds.")
-            return SandboxedExecutionResult(
-                success=False,
-                stdout="",
-                stderr=f"Execution timed out (Limit: {self.timeout_seconds}s).",
-                exit_code=-1,
-                timeout=True
-            )
+            try:
+                stdout, stderr = proc.communicate(timeout=self.timeout_seconds)
+                success = proc.returncode == 0
+                return SandboxedExecutionResult(
+                    success=success,
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=proc.returncode,
+                    timeout=False
+                )
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+                logger.warning(f"Script execution timed out after {self.timeout_seconds} seconds.")
+                return SandboxedExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr=f"Execution timed out (Limit: {self.timeout_seconds}s).",
+                    exit_code=-1,
+                    timeout=True
+                )
+
         except Exception as e:
             logger.error(f"Sandbox runner error: {e}", exc_info=True)
             return SandboxedExecutionResult(
@@ -154,6 +226,12 @@ class HardenedSandbox:
                 exit_code=-1
             )
         finally:
+            if job_handle and sys.platform == "win32":
+                try:
+                    import ctypes
+                    ctypes.windll.kernel32.CloseHandle(job_handle)
+                except Exception:
+                    pass
             try:
                 shutil.rmtree(run_dir, ignore_errors=True)
             except Exception:

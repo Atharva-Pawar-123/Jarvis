@@ -132,7 +132,7 @@ class PermissionEngine:
         risk_level, requires_approval = policy
         return not requires_approval
 
-    async def verify_and_authorize(self, action: str, details: Optional[Dict[str, Any]] = None) -> tuple[bool, str]:
+    async def verify_and_authorize(self, action: str, details: Optional[Dict[str, Any]] = None, **kwargs) -> tuple[bool, str]:
         """
         Evaluates risk against security policy.
         If high risk, checks approval cache or awaits user confirmation via callback / Future.
@@ -145,10 +145,15 @@ class PermissionEngine:
         if not requires_approval:
             return True, "Action permitted automatically by security policy."
 
-        # Check in-memory session whitelist
-        approval_key = f"{norm_action}:{str(details.get('target', details.get('query', '')))}"
+        # Check in-memory session whitelist with SHA-256 payload hash (prevents collision across different code payloads)
+        import hashlib
+        import json
+        payload_repr = json.dumps(details, sort_keys=True, default=str)
+        payload_hash = hashlib.sha256(payload_repr.encode("utf-8")).hexdigest()[:16]
+        approval_key = f"{norm_action}:{payload_hash}"
+
         if approval_key in self.session_approvals:
-            logger.info(f"Action '{norm_action}' auto-approved via session cache.")
+            logger.info(f"Action '{norm_action}' (hash: {payload_hash}) auto-approved via session cache.")
             return True, "Action approved via active session permission."
 
         logger.warning(f"Action '{norm_action}' classified as {risk_level.value}. Requesting user confirmation.")
@@ -156,7 +161,8 @@ class PermissionEngine:
         # Interactive approval via callback if available
         if self.approval_callback:
             try:
-                approved = await self.approval_callback(norm_action, details)
+                # Pass session_id if available in kwargs/details
+                approved = await self.approval_callback(norm_action, details, **kwargs)
                 if approved:
                     self.session_approvals.add(approval_key)
                     return True, "Action approved by user."

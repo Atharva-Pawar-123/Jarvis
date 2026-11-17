@@ -40,7 +40,8 @@ class UnifiedAgentOrchestrator:
         self,
         query: str,
         conversation_history: List[Dict[str, str]],
-        step_callback: Optional[Callable[[str], Any]] = None
+        step_callback: Optional[Callable[[str], Any]] = None,
+        session_id: Optional[str] = None
     ) -> str:
         """
         Executes an autonomous goal-driven reasoning loop.
@@ -135,8 +136,10 @@ class UnifiedAgentOrchestrator:
                 continue
             executed_actions.add(action_key)
 
-            # Security Permission Gate
-            authorized, reason = await self.permission_engine.verify_and_authorize(action, action_input)
+            # Security Permission Gate with session context
+            authorized, reason = await self.permission_engine.verify_and_authorize(
+                action, action_input, session_id=session_id
+            )
             if not authorized:
                 observation = f"Permission Denied: {reason}"
             else:

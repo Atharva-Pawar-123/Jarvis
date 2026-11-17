@@ -23,7 +23,19 @@ export default function useWebSocket(sessionId) {
     if (!sessionId) return
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
-    const wsUrl = `ws://localhost:8080/ws/${sessionId}`
+    // Inject local authentication token into WebSocket connection
+    let token = ''
+    try {
+      token = localStorage.getItem('jarvis_auth_token') || ''
+      if (!token && window.jarvisAPI?.getAuthToken) {
+        token = window.jarvisAPI.getAuthToken() || ''
+        if (token) localStorage.setItem('jarvis_auth_token', token)
+      }
+    } catch (e) {
+      console.warn('[WS] Could not read auth token:', e)
+    }
+
+    const wsUrl = `ws://localhost:8080/ws/${sessionId}${token ? `?token=${encodeURIComponent(token)}` : ''}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
