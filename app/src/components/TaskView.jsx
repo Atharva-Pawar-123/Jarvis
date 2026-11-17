@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
-import { CheckCircle2, PlayCircle, Clock, AlertCircle, XCircle, RefreshCw, Send, ShieldAlert } from 'lucide-react'
+import { CheckCircle2, PlayCircle, Clock, AlertCircle, XCircle, RefreshCw, Send, ShieldAlert, RotateCcw } from 'lucide-react'
 
 export default function TaskView() {
   const [tasks, setTasks] = useState([])
@@ -53,6 +53,15 @@ export default function TaskView() {
     }
   }
 
+  const handleResumeTask = async (taskId) => {
+    try {
+      await axios.post(`http://localhost:8080/api/tasks/${taskId}/resume`)
+      fetchTasks()
+    } catch (e) {
+      console.error('Task resume failed', e)
+    }
+  }
+
   const getStatusBadge = (status) => {
     switch (status) {
       case 'COMPLETED':
@@ -63,6 +72,8 @@ export default function TaskView() {
         return <span className="flex items-center gap-1 text-xs font-mono text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800"><Clock size={12} /> QUEUED</span>
       case 'CANCELLED':
         return <span className="flex items-center gap-1 text-xs font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-700"><XCircle size={12} /> CANCELLED</span>
+      case 'RESUMING':
+        return <span className="flex items-center gap-1 text-xs font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800 animate-pulse"><RotateCcw size={12} /> RESUMING</span>
       case 'INTERRUPTED':
         return <span className="flex items-center gap-1 text-xs font-mono text-amber-500 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800"><AlertCircle size={12} /> INTERRUPTED</span>
       default:
@@ -151,6 +162,16 @@ export default function TaskView() {
                     style={{ border: '1px solid var(--red)' }}
                   >
                     Cancel
+                  </button>
+                )}
+                {(task.status === 'INTERRUPTED' || task.status === 'FAILED') && (
+                  <button
+                    onClick={() => handleResumeTask(task.task_id)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono transition-colors text-emerald-400 hover:bg-emerald-950/40"
+                    style={{ border: '1px solid var(--emerald, #10b981)' }}
+                    title="Resume task from last checkpoint"
+                  >
+                    <RotateCcw size={11} /> Resume
                   </button>
                 )}
               </div>

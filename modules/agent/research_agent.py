@@ -61,7 +61,8 @@ class DeepResearchAgent:
         try:
             match = re.search(r'\[.*\]', raw_queries, re.DOTALL)
             if match:
-                parsed = eval(match.group(0))  # safe fallback or json.loads
+                import json
+                parsed = json.loads(match.group(0))
                 if isinstance(parsed, list) and len(parsed) > 0:
                     subqueries = [str(q) for q in parsed[:max_subqueries]]
         except Exception:
