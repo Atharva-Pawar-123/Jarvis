@@ -68,6 +68,11 @@ export default function useWebSocket(sessionId) {
             addAgentStep(data.step)
             break
 
+          case 'agent_event':
+            setJarvisState('thinking')
+            addAgentStep(data)
+            break
+
           case 'approval_required':
             setJarvisState('thinking')
             setPendingApproval({

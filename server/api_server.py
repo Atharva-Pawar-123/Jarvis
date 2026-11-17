@@ -409,10 +409,17 @@ async def send_message(req: MessageRequest, rt: JarvisRuntime = Depends(get_runt
         history = sess.get("messages", [])[:-1] if sess else []
 
         if rt.orchestrator:
+            async def _forward_agent_step(event):
+                if isinstance(event, dict):
+                    await rt.manager.send_to_session(sid, event)
+                else:
+                    await rt.manager.send_to_session(sid, {"type": "agent_step", "step": str(event)})
+
             response_text = await rt.orchestrator.execute_task(
                 query=req.content,
                 conversation_history=history,
-                step_callback=lambda step: rt.manager.send_to_session(sid, {"type": "agent_step", "step": step})
+                session_id=sid,
+                step_callback=_forward_agent_step
             )
         else:
             messages = _build_messages(rt.session_db, sid, req.content, ctx)
