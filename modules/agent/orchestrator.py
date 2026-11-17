@@ -29,11 +29,12 @@ class AgentStep(BaseModel := type("BaseModel", (), {})):
 class UnifiedAgentOrchestrator:
     """Central Brain for both Desktop and Voice interactions."""
 
-    def __init__(self, llm, tools: StructuredToolRegistry, memory, permission_engine: PermissionEngine):
+    def __init__(self, llm, tools: StructuredToolRegistry, memory, permission_engine: PermissionEngine, four_tier_memory=None):
         self.llm = llm
         self.tools = tools
         self.memory = memory
         self.permission_engine = permission_engine
+        self.four_tier_memory = four_tier_memory
         self.max_steps = 6
 
     async def execute_task(
@@ -76,7 +77,16 @@ class UnifiedAgentOrchestrator:
 
         messages = [{"role": "system", "content": system_instruction}]
 
-        # Inject brief memory context
+        # Inject Working & Procedural Memory Context
+        if self.four_tier_memory:
+            try:
+                working_ctx = self.four_tier_memory.format_working_context(active_session_id=session_id or "default", active_goal=query)
+                if working_ctx:
+                    messages.append({"role": "system", "content": f"Active Working Memory & Behavioral Habits:\n{working_ctx}"})
+            except Exception as e:
+                logger.warning(f"Failed to fetch 4-tier working context: {e}")
+
+        # Inject brief memory context (Semantic)
         try:
             mem_ctx = await asyncio.to_thread(self.memory.get_relevant_context, query)
             if mem_ctx:
@@ -121,7 +131,19 @@ class UnifiedAgentOrchestrator:
             final_answer = action_data.get("final_answer", "")
 
             if action == "FINAL_ANSWER" or final_answer:
-                return final_answer or thought
+                res_ans = final_answer or thought
+                # Automatically log completed episode into Episodic Memory
+                if self.four_tier_memory:
+                    try:
+                        used_tools = [a.split(":")[0] for a in executed_actions]
+                        self.four_tier_memory.log_episode(
+                            user_goal=query,
+                            outcome=res_ans,
+                            tools_used=used_tools
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to log episode to 4-tier memory: {e}")
+                return res_ans
 
             if not action:
                 return response_clean

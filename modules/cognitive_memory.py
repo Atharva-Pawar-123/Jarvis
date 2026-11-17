@@ -111,3 +111,27 @@ class FourTierMemorySystem:
         with self._get_conn() as conn:
             rows = conn.execute("SELECT * FROM procedural_memory ORDER BY category ASC").fetchall()
             return [dict(r) for r in rows]
+
+    def delete_procedural_preference(self, key: str) -> bool:
+        with self._get_conn() as conn:
+            cur = conn.execute("DELETE FROM procedural_memory WHERE key = ?", (key,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def delete_episode(self, episode_id: int) -> bool:
+        with self._get_conn() as conn:
+            cur = conn.execute("DELETE FROM episodic_memory WHERE episode_id = ?", (episode_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get_working_memory_state(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Inspects working memory context, active constraints, and procedural habits."""
+        procedural = self.get_all_procedural_preferences()
+        recent_episodes = self.get_recent_episodes(limit=3)
+        return {
+            "session_id": session_id or "default",
+            "procedural_rules_count": len(procedural),
+            "recent_episodes_count": len(recent_episodes),
+            "active_rules": [p["preference"] for p in procedural],
+            "recent_goals": [e["user_goal"] for e in recent_episodes],
+        }

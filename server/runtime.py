@@ -202,6 +202,7 @@ class JarvisRuntime:
             tools=self.tool_registry,
             memory=self.memory,
             permission_engine=self.permission_engine,
+            four_tier_memory=self.four_tier_memory,
         )
 
         # ── Workflow Engine ────────────────────────────────────────
