@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, Mic, Square, CornerDownLeft } from 'lucide-react'
+import { Send, Mic, Square, CornerDownLeft, ChevronDown, ChevronRight, Cpu } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -12,6 +12,7 @@ import JarvisOrb from './JarvisOrb'
 
 export default function ChatView() {
   const [inputText, setInputText] = useState('')
+  const [showThinking, setShowThinking] = useState(true)
   const messagesEndRef = useRef(null)
   
   const { 
@@ -19,6 +20,8 @@ export default function ChatView() {
     activeSessionId, 
     isStreaming, 
     streamingContent, 
+    agentSteps,
+    clearAgentSteps,
     jarvisState, 
     addMessage,
     setJarvisState
@@ -40,6 +43,7 @@ export default function ChatView() {
 
     const content = inputText.trim()
     setInputText('')
+    clearAgentSteps()
 
     addMessage({
       role: 'user',
@@ -146,6 +150,45 @@ export default function ChatView() {
               </ReactMarkdown>
               <span className="streaming-cursor"></span>
             </div>
+          </div>
+        )}
+
+        {/* Live Agent Reasoning Steps Accordion */}
+        {jarvisState === 'thinking' && agentSteps && agentSteps.length > 0 && (
+          <div className="max-w-xl my-2 animate-fade-in">
+            <div 
+              onClick={() => setShowThinking(!showThinking)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-xs font-mono select-none"
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                color: 'var(--accent)'
+              }}
+            >
+              <Cpu size={14} className="animate-spin" />
+              <span>Thinking & Reasoning ({agentSteps.length} steps)</span>
+              <div className="ml-auto">
+                {showThinking ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </div>
+            </div>
+
+            {showThinking && (
+              <div 
+                className="mt-1 p-3 rounded-lg text-xs font-mono space-y-1.5"
+                style={{
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)'
+                }}
+              >
+                {agentSteps.map((step, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <span style={{ color: 'var(--accent)' }}>▶</span>
+                    <span>{step}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

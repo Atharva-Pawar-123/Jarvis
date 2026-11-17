@@ -37,7 +37,7 @@ class AutonomousWorkflowEngine:
         task = self.task_manager.create_task(
             title=task_title,
             goal=goal,
-            total_steps=4
+            total_steps=5
         )
         task_id = task["task_id"]
 
@@ -54,7 +54,7 @@ class AutonomousWorkflowEngine:
                 task_id=task_id,
                 step_desc="Decomposing goal into actionable plan",
                 steps_completed=1,
-                total_steps=4
+                total_steps=5
             )
 
             plan_prompt = (
@@ -79,37 +79,55 @@ class AutonomousWorkflowEngine:
                 task_id=task_id,
                 step_desc=f"Executing: {steps[0]}",
                 steps_completed=2,
-                total_steps=4,
+                total_steps=5,
                 checkpoint={"plan": steps, "current_step": 0}
             )
             step1_out = await self.orchestrator.execute_task(
-                query=f"Autonomous Goal: {goal}. Subtask: {steps[0]}",
+                query=f"Autonomous Goal: {goal}. Subtask 1: {steps[0]}",
                 conversation_history=[]
             )
 
             # Step 3: Execute Second Subtask
+            step2_desc = steps[1] if len(steps) > 1 else "Execution and data compilation"
             self.task_manager.update_progress(
                 task_id=task_id,
-                step_desc=f"Executing: {steps[1] if len(steps)>1 else 'Follow-up'}",
+                step_desc=f"Executing: {step2_desc}",
                 steps_completed=3,
-                total_steps=4,
+                total_steps=5,
                 checkpoint={"plan": steps, "step1_out": step1_out[:300]}
             )
             step2_out = await self.orchestrator.execute_task(
-                query=f"Context from previous step:\n{step1_out}\n\nExecute next subtask: {steps[1] if len(steps)>1 else 'Compile'}",
+                query=f"Context from previous step:\n{step1_out}\n\nExecute next subtask: {step2_desc}",
                 conversation_history=[]
             )
 
-            # Step 4: Final Synthesis & Completion
+            # Step 4: Execute Third Subtask
+            step3_desc = steps[2] if len(steps) > 2 else "Final verification and detail consolidation"
+            self.task_manager.update_progress(
+                task_id=task_id,
+                step_desc=f"Executing: {step3_desc}",
+                steps_completed=4,
+                total_steps=5,
+                checkpoint={"plan": steps, "step2_out": step2_out[:300]}
+            )
+            step3_out = await self.orchestrator.execute_task(
+                query=f"Context from previous steps:\n{step1_out}\n\n{step2_out}\n\nExecute subtask 3: {step3_desc}",
+                conversation_history=[]
+            )
+
+            # Step 5: Final Synthesis & Completion
             self.task_manager.update_progress(
                 task_id=task_id,
                 step_desc="Synthesizing final deliverable",
-                steps_completed=4,
-                total_steps=4
+                steps_completed=5,
+                total_steps=5
             )
             final_prompt = (
                 f"Synthesize the final deliverable for the user's goal: '{goal}'.\n\n"
-                f"Findings:\n{step1_out}\n{step2_out}\n\n"
+                f"Findings & Results from all steps:\n"
+                f"Step 1 ({steps[0]}):\n{step1_out}\n\n"
+                f"Step 2 ({step2_desc}):\n{step2_out}\n\n"
+                f"Step 3 ({step3_desc}):\n{step3_out}\n\n"
                 "Provide a complete, structured summary with deliverables in British JARVIS tone."
             )
             final_deliverable = await asyncio.to_thread(self.orchestrator.llm.generate, [{"role": "user", "content": final_prompt}], False)
