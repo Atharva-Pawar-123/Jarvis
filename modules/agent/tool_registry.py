@@ -60,6 +60,38 @@ class ExecuteCodeInput(BaseModel):
 class SearchMemoryInput(BaseModel):
     query: str = Field(..., description="Search phrase or keyword for long-term memory")
 
+class SendEmailInput(BaseModel):
+    to: str = Field(..., description="Recipient email address")
+    subject: str = Field(..., description="Subject line of the email")
+    body: str = Field(..., description="Body text content of the email")
+
+class ReadEmailInput(BaseModel):
+    count: int = Field(5, description="Number of recent emails to read from inbox")
+
+class SendWhatsAppInput(BaseModel):
+    phone_number: str = Field(..., description="Phone number with country code, e.g. +1234567890")
+    message: str = Field(..., description="Message text to send")
+
+class WebSearchInput(BaseModel):
+    query: str = Field(..., description="Search query keyword or question")
+
+class WeatherInput(BaseModel):
+    location: str = Field("", description="City or location name, e.g. 'London', 'New York' (leave empty for auto/current)")
+
+class NewsInput(BaseModel):
+    count: int = Field(5, description="Number of top headlines to fetch")
+
+class SetReminderInput(BaseModel):
+    time_str: str = Field(..., description="Time expression for reminder, e.g. 'in 10 minutes', 'at 5 PM'")
+    task: str = Field(..., description="What to remind the user about")
+
+class ReadDocumentInput(BaseModel):
+    file_path: str = Field(..., description="Absolute or relative path to PDF, DOCX, or text file")
+
+class SmartHomeControlInput(BaseModel):
+    device: str = Field(..., description="Name or identifier of the smart home device")
+    action: str = Field(..., description="Action to perform, e.g. 'turn_on', 'turn_off', 'toggle'")
+
 class EmptyInput(BaseModel):
     pass
 
@@ -162,7 +194,7 @@ class StructuredToolRegistry:
         func = tool_meta["func"]
         schema_cls = tool_meta.get("schema_cls")
 
-        # Validate arguments using Pydantic if schema class is provided
+        # Validate arguments using Pydantic or JSON Schema
         clean_args = arguments
         if schema_cls and isinstance(arguments, dict):
             try:
@@ -176,27 +208,47 @@ class StructuredToolRegistry:
                     error=f"Argument validation failed for {name}: {val_err}",
                     execution_time_ms=int((time.time() - start_t) * 1000)
                 )
+        elif tool_meta.get("schema") and isinstance(arguments, dict):
+            # Validate raw JSON schema (for dynamic skills and MCP tools)
+            try:
+                import jsonschema
+                jsonschema.validate(instance=arguments, schema=tool_meta["schema"])
+            except Exception as json_err:
+                return ToolExecutionResult(
+                    tool_name=name,
+                    success=False,
+                    result="",
+                    error=f"Schema validation failed for {name}: {json_err.message if hasattr(json_err, 'message') else json_err}",
+                    execution_time_ms=int((time.time() - start_t) * 1000)
+                )
 
-        # Call function
+        # Call function with execution timeout enforcement
+        timeout = tool_meta.get("timeout", 15)
         try:
+            import concurrent.futures
+
             sig = inspect.signature(func)
-            if not sig.parameters:
-                res = func()
-            elif isinstance(clean_args, dict):
-                # Check for direct kwargs match
-                kwargs = {k: v for k, v in clean_args.items() if k in sig.parameters}
-                has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-                if kwargs and not has_kwargs:
-                    res = func(**kwargs)
-                elif has_kwargs:
-                    res = func(**clean_args)
-                elif len(sig.parameters) == 1:
-                    first_val = next(iter(clean_args.values())) if clean_args else ""
-                    res = func(first_val)
+            def _invoke():
+                if not sig.parameters:
+                    return func()
+                elif isinstance(clean_args, dict):
+                    kwargs = {k: v for k, v in clean_args.items() if k in sig.parameters}
+                    has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                    if kwargs and not has_kwargs:
+                        return func(**kwargs)
+                    elif has_kwargs:
+                        return func(**clean_args)
+                    elif len(sig.parameters) == 1:
+                        first_val = next(iter(clean_args.values())) if clean_args else ""
+                        return func(first_val)
+                    else:
+                        return func()
                 else:
-                    res = func()
-            else:
-                res = func(clean_args)
+                    return func(clean_args)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_invoke)
+                res = future.result(timeout=timeout)
 
             elapsed = int((time.time() - start_t) * 1000)
             return ToolExecutionResult(
@@ -206,6 +258,16 @@ class StructuredToolRegistry:
                 execution_time_ms=elapsed
             )
 
+        except concurrent.futures.TimeoutError:
+            elapsed = int((time.time() - start_t) * 1000)
+            logger.warning(f"Tool {name} execution timed out after {timeout} seconds.")
+            return ToolExecutionResult(
+                tool_name=name,
+                success=False,
+                result="",
+                error=f"Execution timed out after {timeout}s",
+                execution_time_ms=elapsed
+            )
         except Exception as e:
             logger.error(f"Error executing tool {name}: {e}", exc_info=True)
             elapsed = int((time.time() - start_t) * 1000)
