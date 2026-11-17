@@ -19,7 +19,7 @@ export default function ImageGenView() {
   const [prompt, setPrompt] = useState('')
   const [negativePrompt, setNegativePrompt] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('auto')
+  const [selectedModel, setSelectedModel] = useState('local')
   const [availableModels, setAvailableModels] = useState([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImages, setGeneratedImages] = useState([])
@@ -44,14 +44,21 @@ export default function ImageGenView() {
   const fetchModels = async () => {
     try {
       const res = await axios.get(`${API_BASE}/api/image/models`)
-      setAvailableModels(res.data.models || [])
+      const models = res.data.models || []
+      setAvailableModels(models)
+      if (models.length > 0 && !models.some(m => m.id === selectedModel)) {
+        setSelectedModel(models[0].id)
+      }
     } catch {
-      // Fallback models list
-      setAvailableModels([
-        { id: 'auto', name: 'Auto (Best Available)', source: 'auto', description: 'Local Forge → Pollinations fallback' },
-        { id: 'local', name: 'DreamShaper 8 (Local)', source: 'forge', description: 'Local SD Forge — Fast, uncensored' },
-        { id: 'pollinations', name: 'Pollinations AI (Cloud)', source: 'pollinations', description: 'Free cloud — No API key needed' },
-      ])
+      // Fallback explicit models list without auto
+      const fallbackList = [
+        { id: 'local', name: 'DreamShaper 8 (Local SD Forge)', source: 'forge', description: 'Local SD Forge — High speed on NVIDIA RTX GPU' },
+        { id: 'pollinations:flux', name: 'FLUX.1 Schnell (Cloud)', source: 'pollinations', description: 'Exceptional detail, high photorealism' },
+        { id: 'pollinations:flux-realism', name: 'FLUX Realism (Cloud)', source: 'pollinations', description: 'Tuned for realistic skin, portraiture & textures' },
+        { id: 'pollinations:flux-anime', name: 'FLUX Anime (Cloud)', source: 'pollinations', description: 'Stylized anime, concept art, and digital illustrations' },
+        { id: 'pollinations:turbo', name: 'Pollinations Turbo (Cloud)', source: 'pollinations', description: 'Fast cloud generation with clean prompt adherence' },
+      ]
+      setAvailableModels(fallbackList)
     }
   }
 
