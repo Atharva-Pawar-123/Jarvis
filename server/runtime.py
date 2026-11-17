@@ -182,6 +182,11 @@ class JarvisRuntime:
             task_manager=self.task_manager,
         )
 
+        # ── Startup Recovery: Clean up interrupted tasks from previous session ──
+        recovered = self.task_manager.recover_interrupted_tasks()
+        if recovered:
+            logger.info(f"Startup task recovery: cleaned {len(recovered)} interrupted task(s).")
+
         logger.info("JARVIS Runtime boot complete — canonical tools and security gate online.")
 
     # ──────────────────────────────────────────────────────────────
