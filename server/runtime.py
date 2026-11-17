@@ -142,7 +142,7 @@ class JarvisRuntime:
         self.email_h = EmailHandler()
         self.whatsapp_h = WhatsAppHandler()
         self.web_search_e = WebSearchEngine()
-        self.scheduler_h = ReminderScheduler()
+        self.scheduler_h = ReminderScheduler(tts_callback=self.tts.speak if hasattr(self, 'tts') else None)
         self.doc_reader = DocumentReader()
         self.iot_h = IoTHandler()
         self.code_e = CodeEngine()

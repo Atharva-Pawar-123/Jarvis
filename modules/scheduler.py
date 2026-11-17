@@ -12,7 +12,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Callable
+from typing import List, Callable, Optional
 
 from dateutil import parser
 
@@ -24,8 +24,8 @@ class ReminderScheduler:
     Background scheduler that triggers TTS reminders when due.
     """
 
-    def __init__(self, tts_callback: Callable[[str], None], storage_path: str = "data/reminders.json") -> None:
-        self.tts_callback = tts_callback
+    def __init__(self, tts_callback: Optional[Callable[[str], None]] = None, storage_path: str = "data/reminders.json") -> None:
+        self.tts_callback = tts_callback or (lambda text: logger.info(f"[Reminder]: {text}"))
         self.storage_path = Path(storage_path)
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         
