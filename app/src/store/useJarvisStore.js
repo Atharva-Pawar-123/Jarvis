@@ -28,6 +28,7 @@ const useJarvisStore = create((set, get) => ({
   isStreaming: false,
   streamingContent: '',
   agentSteps: [], // List of intermediate reasoning steps
+  pendingApproval: null, // { request_id, action, details }
 
   // ── UI ────────────────────────────────────────────────────────
   activeTab: 'chat', // chat | voice | imagegen | hud | memory | settings
@@ -138,6 +139,22 @@ const useJarvisStore = create((set, get) => ({
 
   clearAgentSteps: () =>
     set({ agentSteps: [] }),
+
+  setPendingApproval: (approval) =>
+    set({ pendingApproval: approval }),
+
+  resolveApproval: async (requestId, approved) => {
+    try {
+      await fetch(`${API_BASE}/api/security/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, approved }),
+      })
+      set({ pendingApproval: null })
+    } catch (e) {
+      console.error('Failed to resolve approval:', e)
+    }
+  },
 
   resetStream: () => set({ streamingContent: '', isStreaming: false, agentSteps: [] }),
 

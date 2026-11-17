@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, Mic, Square, CornerDownLeft, ChevronDown, ChevronRight, Cpu } from 'lucide-react'
+import { Send, Mic, Square, CornerDownLeft, ChevronDown, ChevronRight, Cpu, ShieldAlert, Check, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -22,6 +22,8 @@ export default function ChatView() {
     streamingContent, 
     agentSteps,
     clearAgentSteps,
+    pendingApproval,
+    resolveApproval,
     jarvisState, 
     addMessage,
     setJarvisState
@@ -189,6 +191,59 @@ export default function ChatView() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Security Approval Gate Modal Card */}
+        {pendingApproval && (
+          <div className="max-w-xl my-3 p-4 rounded-xl animate-fade-in"
+               style={{
+                 background: 'rgba(255, 171, 0, 0.08)',
+                 border: '1px solid var(--amber)',
+                 boxShadow: '0 4px 20px rgba(255, 171, 0, 0.15)'
+               }}>
+            <div className="flex items-center gap-2 mb-2" style={{ color: 'var(--amber)' }}>
+              <ShieldAlert size={18} />
+              <span className="font-mono text-sm font-semibold uppercase tracking-wider">
+                Authorization Required, Sir
+              </span>
+            </div>
+            
+            <p className="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
+              JARVIS is requesting permission to execute: <strong className="font-mono text-xs px-1.5 py-0.5 rounded bg-black/40 text-amber-300">{pendingApproval.action}</strong>
+            </p>
+
+            {pendingApproval.details && Object.keys(pendingApproval.details).length > 0 && (
+              <div className="p-2 mb-3 rounded bg-black/30 font-mono text-xs overflow-x-auto" style={{ color: 'var(--text-secondary)' }}>
+                {JSON.stringify(pendingApproval.details, null, 2)}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => resolveApproval(pendingApproval.request_id, true)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{
+                  background: 'var(--amber)',
+                  color: '#000',
+                  boxShadow: '0 0 10px rgba(255, 171, 0, 0.4)'
+                }}
+              >
+                <Check size={14} /> Approve & Proceed
+              </button>
+
+              <button
+                onClick={() => resolveApproval(pendingApproval.request_id, false)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                <X size={14} /> Reject
+              </button>
+            </div>
           </div>
         )}
 

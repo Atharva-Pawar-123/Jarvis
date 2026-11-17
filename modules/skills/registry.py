@@ -1,10 +1,9 @@
 """
-modules/skills/registry.py — Dynamic Skill Registry for JARVIS
-==============================================================
+modules/skills/registry.py — Dynamic Skill Registry for JARVIS (V2.1 Hardened)
+==============================================================================
 Discovers, validates, and loads modular skills from the `skills/` directory.
-Each skill contains:
-- manifest.json: name, version, description, required permissions, and parameter schemas.
-- handler.py: standard `execute(context: dict, params: dict) -> dict` interface.
+Mounts parameter schemas directly into CanonicalTool definitions so skills
+receive their declared argument signatures (e.g. `expression`).
 """
 
 import os
@@ -41,7 +40,7 @@ class DynamicSkillRegistry:
         self.loaded_skills: Dict[str, Dict[str, Any]] = {}
 
     def discover_and_mount(self, tool_registry: StructuredToolRegistry):
-        """Scans the skills directory, loads valid manifests, and registers into tool_registry."""
+        """Scans the skills directory, loads valid manifests, and registers canonical tools."""
         logger.info(f"Scanning skills directory: {self.skills_dir}")
 
         for item in self.skills_dir.iterdir():
@@ -61,7 +60,7 @@ class DynamicSkillRegistry:
                         spec.loader.exec_module(mod)
 
                         if hasattr(mod, "execute") and callable(mod.execute):
-                            # Wrap into tool function that accepts both positional and keyword arguments
+                            # Wrap into executor that passes unpacked params
                             def make_executor(execute_fn):
                                 def _exec(*args, **kwargs):
                                     params = dict(kwargs)
@@ -69,15 +68,21 @@ class DynamicSkillRegistry:
                                         if isinstance(args[0], dict):
                                             params.update(args[0])
                                         else:
+                                            # If single positional arg, map to first required parameter or 'query'
                                             params["input"] = args[0]
                                     return execute_fn(context={}, params=params)
                                 return _exec
+
+                            # Pass declared manifest parameters_schema so LLM receives accurate signature
+                            schema = manifest.parameters_schema if manifest.parameters_schema else None
 
                             tool_registry.register(
                                 name=f"skill_{manifest.name}",
                                 description=f"[Skill] {manifest.description}",
                                 func=make_executor(mod.execute),
+                                custom_schema=schema,
                                 risk="medium" if manifest.permissions_required else "low",
+                                permission_category=f"skill_{manifest.name}",
                                 timeout=manifest.timeout_seconds
                             )
 
@@ -85,7 +90,7 @@ class DynamicSkillRegistry:
                                 "manifest": manifest,
                                 "handler": mod.execute
                             }
-                            logger.info(f"Loaded dynamic skill: {manifest.name} v{manifest.version}")
+                            logger.info(f"Loaded dynamic skill with canonical schema: {manifest.name} v{manifest.version}")
 
                     except Exception as e:
                         logger.error(f"Failed to load skill at {item}: {e}")
@@ -96,7 +101,8 @@ class DynamicSkillRegistry:
                 "name": k,
                 "version": v["manifest"].version,
                 "description": v["manifest"].description,
-                "permissions": v["manifest"].permissions_required
+                "permissions": v["manifest"].permissions_required,
+                "parameters_schema": v["manifest"].parameters_schema
             }
             for k, v in self.loaded_skills.items()
         ]
