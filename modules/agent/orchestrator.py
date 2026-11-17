@@ -42,7 +42,8 @@ class UnifiedAgentOrchestrator:
         query: str,
         conversation_history: List[Dict[str, str]],
         step_callback: Optional[Callable[[str], Any]] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        cancellation_token: Optional[asyncio.Event] = None
     ) -> str:
         """
         Executes an autonomous goal-driven reasoning loop.
@@ -104,6 +105,10 @@ class UnifiedAgentOrchestrator:
         executed_actions: set[str] = set()
 
         for step in range(self.max_steps):
+            if cancellation_token and cancellation_token.is_set():
+                logger.info("Orchestrator loop aborted: cancellation token set.")
+                return "Task execution was cancelled."
+
             logger.info(f"Agent Loop iteration {step + 1}/{self.max_steps}")
 
             # Notify UI
@@ -165,6 +170,10 @@ class UnifiedAgentOrchestrator:
             if not authorized:
                 observation = f"Permission Denied: {reason}"
             else:
+                if cancellation_token and cancellation_token.is_set():
+                    logger.info("Orchestrator aborted prior to tool invocation: cancellation token set.")
+                    return "Task execution was cancelled."
+
                 if step_callback:
                     try:
                         cb_res = step_callback(f"Executing tool: {action}...")

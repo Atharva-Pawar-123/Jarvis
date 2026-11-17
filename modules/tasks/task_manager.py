@@ -29,6 +29,7 @@ class TaskStatus:
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
+    RESUMING = "RESUMING"
     WAITING_APPROVAL = "WAITING_APPROVAL"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
@@ -95,6 +96,32 @@ class PersistentTaskManager:
 
             conn.commit()
         return recovered_ids
+
+    def resume_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Transitions an INTERRUPTED, PAUSED, or FAILED task back into RESUMING / QUEUED
+        status so that the workflow engine can pick up from its last saved checkpoint.
+        """
+        now = datetime.now().isoformat()
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if not row:
+                return None
+
+            task_dict = dict(row)
+            # Reallocate cancellation token
+            self._cancellation_events[task_id] = asyncio.Event()
+
+            conn.execute(
+                "UPDATE tasks SET status = ?, current_step = 'Resuming from checkpoint...', updated_at = ? WHERE task_id = ?",
+                (TaskStatus.RESUMING, now, task_id)
+            )
+            conn.commit()
+
+            task_dict["status"] = TaskStatus.RESUMING
+            task_dict["current_step"] = "Resuming from checkpoint..."
+            logger.info(f"Task [{task_id}] '{task_dict['title']}' transitioned to RESUMING.")
+            return task_dict
 
     def create_task(self, title: str, goal: str, total_steps: int = 1) -> Dict[str, Any]:
         """Creates a new task in the database and assigns a cancellation token."""
