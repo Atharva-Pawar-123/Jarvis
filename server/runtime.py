@@ -49,8 +49,13 @@ from modules.agent.tool_registry import (
     SetReminderInput,
     ReadDocumentInput,
     SmartHomeControlInput,
+    DeepResearchInput,
+    CodeProposalInput,
+    IngestDocumentInput,
 )
 from modules.agent.orchestrator import UnifiedAgentOrchestrator
+from modules.agent.research_agent import DeepResearchAgent
+from modules.agent.coding_agent import AutonomousCodingAgent
 from modules.tasks.task_manager import PersistentTaskManager
 from modules.cognitive_memory import FourTierMemorySystem
 from modules.skills.registry import DynamicSkillRegistry
@@ -107,6 +112,8 @@ class JarvisRuntime:
     # ── Agent Layer ───────────────────────────────────────────────
     orchestrator: Optional[UnifiedAgentOrchestrator] = None
     workflow_engine: Optional[AutonomousWorkflowEngine] = None
+    research_agent: Optional[DeepResearchAgent] = None
+    coding_agent: Optional[AutonomousCodingAgent] = None
 
     async def boot(self) -> None:
         """
@@ -203,6 +210,17 @@ class JarvisRuntime:
             memory=self.memory,
             permission_engine=self.permission_engine,
             four_tier_memory=self.four_tier_memory,
+        )
+
+        # ── Specialized Intelligence Agents ────────────────────────
+        self.research_agent = DeepResearchAgent(
+            llm=self.llm,
+            web_search_engine=self.web_search_e,
+            browser_agent=self.browser_agent
+        )
+        self.coding_agent = AutonomousCodingAgent(
+            llm=self.llm,
+            code_engine=self.code_e
         )
 
         # ── Workflow Engine ────────────────────────────────────────
@@ -393,4 +411,35 @@ class JarvisRuntime:
             schema_cls=SmartHomeControlInput,
             risk="medium",
             permission_category="modify_system_settings"
+        )
+
+        # ── Advanced Intelligence Tools ───────────────────────────
+        reg.register(
+            name="deep_research",
+            description="Perform multi-query web research, cross-reference sources, and compile citations",
+            func=lambda topic, max_subqueries=3: asyncio.run(self.research_agent.conduct_research(topic, max_subqueries=max_subqueries)) if self.research_agent else "Research agent unavailable",
+            schema_cls=DeepResearchInput,
+            risk="low",
+            permission_category="search_web",
+            timeout=60
+        )
+
+        reg.register(
+            name="propose_code_fix",
+            description="Inspect a local file, draft a syntax-validated code change or bug fix proposal",
+            func=lambda target_file, task_instruction: asyncio.run(self.coding_agent.propose_and_verify_fix(task_instruction, target_file)) if self.coding_agent else "Coding agent unavailable",
+            schema_cls=CodeProposalInput,
+            risk="medium",
+            permission_category="modify_code",
+            timeout=45
+        )
+
+        reg.register(
+            name="ingest_document",
+            description="Ingest, chunk, and index a document (PDF, DOCX, TXT) into Semantic RAG ChromaDB",
+            func=lambda file_path: f"Ingested {self.doc_reader.ingest_to_memory(file_path, self.memory)} chunks into Semantic RAG." if self.doc_reader and self.memory else "Ingestion unavailable",
+            schema_cls=IngestDocumentInput,
+            risk="low",
+            permission_category="read_file",
+            timeout=30
         )
