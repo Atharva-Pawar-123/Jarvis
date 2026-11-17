@@ -12,6 +12,7 @@ export default function useWebSocket(sessionId) {
     appendStreamToken,
     addAgentStep,
     clearAgentSteps,
+    setPendingApproval,
     setStreaming,
     resetStream,
     updateSessionTitle,
@@ -53,6 +54,15 @@ export default function useWebSocket(sessionId) {
           case 'agent_step':
             setJarvisState('thinking')
             addAgentStep(data.step)
+            break
+
+          case 'approval_required':
+            setJarvisState('thinking')
+            setPendingApproval({
+              request_id: data.request_id,
+              action: data.action,
+              details: data.details
+            })
             break
 
           case 'complete':

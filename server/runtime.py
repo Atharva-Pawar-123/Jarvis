@@ -1,14 +1,10 @@
 """
-server/runtime.py — JARVIS Unified Application Runtime Container
-=================================================================
+server/runtime.py — JARVIS Unified Application Runtime Container (V2.1 Hardened)
+================================================================================
 Single-source-of-truth for all JARVIS module singletons.
 Eliminates fragmented module-level globals by holding every engine,
 memory tier, registry, and manager in one strongly-typed container
 attached to FastAPI's `app.state.jarvis`.
-
-Usage in any endpoint:
-    runtime: JarvisRuntime = request.app.state.jarvis
-    runtime.llm.generate(...)
 """
 
 import asyncio
@@ -27,8 +23,17 @@ from modules.email_handler import EmailHandler
 from modules.vision import VisionEngine
 from modules.code_engine import CodeEngine
 from modules.image_gen import ImageGenerationEngine
-from modules.security.permission_engine import PermissionEngine
-from modules.agent.tool_registry import StructuredToolRegistry
+from modules.security.permission_engine import PermissionEngine, ActionCategory
+from modules.agent.tool_registry import (
+    StructuredToolRegistry,
+    OpenAppInput,
+    CloseAppInput,
+    FocusWindowInput,
+    BrowsePageInput,
+    ExecuteCodeInput,
+    SearchMemoryInput,
+    EmptyInput,
+)
 from modules.agent.orchestrator import UnifiedAgentOrchestrator
 from modules.tasks.task_manager import PersistentTaskManager
 from modules.cognitive_memory import FourTierMemorySystem
@@ -114,8 +119,35 @@ class JarvisRuntime:
         except Exception as e:
             logger.warning(f"Could not initialize ImageGenerationEngine: {e}")
 
-        # ── Register Tools ─────────────────────────────────────────
-        self._register_builtin_tools()
+        # ── Wire Permission Approval Callback to WebSocket Broadcast ──
+        async def ui_approval_callback(action: str, details: dict) -> bool:
+            import uuid
+            request_id = str(uuid.uuid4())
+            fut = self.permission_engine.register_approval_request(request_id)
+            
+            # Broadcast approval request to active WebSocket sessions
+            payload = {
+                "type": "approval_required",
+                "request_id": request_id,
+                "action": action,
+                "details": details
+            }
+            logger.info(f"Emitting approval request to UI: {payload}")
+            for sid in list(self.manager.active.keys()):
+                await self.manager.send_to_session(sid, payload)
+
+            # Wait for user decision with 45s timeout
+            try:
+                approved = await asyncio.wait_for(fut, timeout=45.0)
+                return approved
+            except asyncio.TimeoutError:
+                logger.warning(f"Approval request {request_id} timed out.")
+                return False
+
+        self.permission_engine.set_approval_callback(ui_approval_callback)
+
+        # ── Register Canonical Tools ───────────────────────────────
+        self._register_canonical_tools()
 
         # ── Mount Dynamic Skills ───────────────────────────────────
         self.skill_registry.discover_and_mount(self.tool_registry)
@@ -124,7 +156,6 @@ class JarvisRuntime:
         try:
             self.mcp_manager.start_all()
             for mcp_tool in self.mcp_manager._all_tools:
-                # Capture loop variable safely
                 _server = mcp_tool.server_name
                 _name = mcp_tool.name
                 self.tool_registry.register(
@@ -132,6 +163,7 @@ class JarvisRuntime:
                     description=f"[MCP:{_server}] {mcp_tool.description}",
                     func=lambda _s=_server, _n=_name, **kw: self.mcp_manager.clients[_s].call_tool(_n, kw),
                     risk="medium",
+                    permission_category="mcp_call"
                 )
         except Exception as e:
             logger.warning(f"MCP Plugin auto-start: {e}")
@@ -150,30 +182,99 @@ class JarvisRuntime:
             task_manager=self.task_manager,
         )
 
-        logger.info("JARVIS Runtime boot complete — all modules online.")
+        logger.info("JARVIS Runtime boot complete — canonical tools and security gate online.")
 
     # ──────────────────────────────────────────────────────────────
-    def _register_builtin_tools(self) -> None:
-        """Register core JARVIS tools into the StructuredToolRegistry."""
+    def _register_canonical_tools(self) -> None:
+        """Register all tools with strongly-typed Pydantic schemas and aligned categories."""
         reg = self.tool_registry
 
-        reg.register("open_app", "Launch or open a desktop app",
-                      lambda app_name: self.automation.open_app(app_name))
-        reg.register("close_app", "Close an active desktop application",
-                      lambda app_name: self.automation.close_app(app_name))
-        reg.register("system_status", "Check system CPU, RAM, Disk, and metrics",
-                      lambda: self.automation.get_system_status())
-        reg.register("take_screenshot", "Capture screen image",
-                      lambda: self.automation.take_screenshot())
-        reg.register("describe_screen", "Analyze and describe what is visible on display",
-                      lambda: self.vision.describe_screen())
-        reg.register("search_memory", "Search past conversation memory and stored facts",
-                      lambda query: self.memory.get_relevant_context(query))
-        reg.register("execute_code", "Execute Python code in isolated sandbox",
-                      lambda code: self.code_e.execute_python(code), risk="high")
-        reg.register("list_windows", "List all open desktop application windows",
-                      lambda: self.computer_use.list_open_windows())
-        reg.register("focus_window", "Switch focus to a specific desktop application window",
-                      lambda window_name: self.computer_use.focus_window(window_name))
-        reg.register("browse_page", "Headlessly fetch clean page text without taking mouse focus",
-                      lambda url: asyncio.run(self.browser_agent.fetch_page_content(url)))
+        reg.register(
+            name="open_app",
+            description="Launch or open a desktop application by name",
+            func=lambda app_name: self.automation.open_app(app_name),
+            schema_cls=OpenAppInput,
+            risk="medium",
+            permission_category=ActionCategory.OPEN_APPLICATION
+        )
+
+        reg.register(
+            name="close_app",
+            description="Close an active desktop application by name",
+            func=lambda app_name: self.automation.close_app(app_name),
+            schema_cls=CloseAppInput,
+            risk="medium",
+            permission_category=ActionCategory.CLOSE_APPLICATION
+        )
+
+        reg.register(
+            name="system_status",
+            description="Check system CPU, RAM, Disk, and hardware metrics",
+            func=lambda: self.automation.get_system_status(),
+            schema_cls=EmptyInput,
+            risk="low",
+            permission_category=ActionCategory.SYSTEM_STATUS
+        )
+
+        reg.register(
+            name="take_screenshot",
+            description="Capture current primary screen display",
+            func=lambda: self.automation.take_screenshot(),
+            schema_cls=EmptyInput,
+            risk="low",
+            permission_category=ActionCategory.TAKE_SCREENSHOT
+        )
+
+        reg.register(
+            name="describe_screen",
+            description="Analyze and describe what is visible on current display",
+            func=lambda: self.vision.describe_screen(),
+            schema_cls=EmptyInput,
+            risk="low",
+            permission_category=ActionCategory.DESCRIBE_SCREEN
+        )
+
+        reg.register(
+            name="search_memory",
+            description="Search past conversation memory, user preferences, and facts",
+            func=lambda query: self.memory.get_relevant_context(query),
+            schema_cls=SearchMemoryInput,
+            risk="low",
+            permission_category=ActionCategory.SEARCH_MEMORY
+        )
+
+        reg.register(
+            name="execute_code",
+            description="Execute Python code in isolated process sandbox",
+            func=lambda code: self.code_e.execute_python(code),
+            schema_cls=ExecuteCodeInput,
+            risk="high",
+            permission_category=ActionCategory.EXECUTE_CODE
+        )
+
+        reg.register(
+            name="list_windows",
+            description="List all open desktop application windows",
+            func=lambda: self.computer_use.list_open_windows(),
+            schema_cls=EmptyInput,
+            risk="low",
+            permission_category=ActionCategory.LIST_WINDOWS
+        )
+
+        reg.register(
+            name="focus_window",
+            description="Switch focus to a specific desktop application window",
+            func=lambda window_name: self.computer_use.focus_window(window_name),
+            schema_cls=FocusWindowInput,
+            risk="medium",
+            permission_category=ActionCategory.FOCUS_WINDOW
+        )
+
+        reg.register(
+            name="browse_page",
+            description="Headlessly fetch clean page text without taking mouse focus",
+            func=lambda url: asyncio.run(self.browser_agent.fetch_page_content(url)),
+            schema_cls=BrowsePageInput,
+            risk="medium",
+            permission_category=ActionCategory.BROWSE_URL
+        )
