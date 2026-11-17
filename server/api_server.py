@@ -349,6 +349,14 @@ async def cancel_task(task_id: str, rt: JarvisRuntime = Depends(get_runtime)):
     return {"cancelled": task_id}
 
 
+@app.post("/api/tasks/{task_id}/resume")
+async def resume_task(task_id: str, rt: JarvisRuntime = Depends(get_runtime)):
+    success = await rt.workflow_engine.resume_goal(task_id)
+    if not success:
+        raise HTTPException(404, f"Task {task_id} could not be resumed")
+    return {"resumed": task_id}
+
+
 # ── Interactive Security Approval Endpoint ───────────────────────────
 @app.post("/api/security/approve")
 async def submit_approval_decision(req: ApprovalDecisionRequest, rt: JarvisRuntime = Depends(get_runtime)):
