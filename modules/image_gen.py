@@ -64,25 +64,67 @@ class ImageGenerationEngine:
                 logger.warning(f"Could not auto-start Forge: {e}")
         return False
 
-    def _generate_local(self, prompt: str, negative_prompt: str = "", steps: int = 20, width: int = 512, height: int = 512) -> Optional[bytes]:
+    def switch_model(self, model_title: str) -> bool:
         """
-        Generates an image via local Forge API at high speed on GPU.
+        Dynamically loads a specific model checkpoint in SD-Forge via /sdapi/v1/options.
         """
+        try:
+            # First check current model
+            res = requests.get(f"{self.local_url}/sdapi/v1/options", timeout=2)
+            if res.status_code == 200:
+                current = res.json().get("sd_model_checkpoint", "")
+                if model_title in current or current in model_title:
+                    return True
+
+            # Swap model
+            opt_res = requests.post(
+                f"{self.local_url}/sdapi/v1/options",
+                json={"sd_model_checkpoint": model_title},
+                timeout=30
+            )
+            return opt_res.status_code == 200
+        except Exception as exc:
+            logger.warning(f"Failed to switch Forge model to '{model_title}': {exc}")
+            return False
+
+    def _generate_local(
+        self,
+        prompt: str,
+        negative_prompt: str = "",
+        steps: int = 20,
+        width: int = 512,
+        height: int = 512,
+        cfg_scale: float = 7.0,
+        sampler_name: Optional[str] = None,
+        model_title: Optional[str] = None
+    ) -> Optional[bytes]:
+        """
+        Generates an image via local Forge API at high speed on GPU with dynamic model & sampler support.
+        """
+        # Switch model if a specific checkpoint is requested
+        if model_title:
+            self.switch_model(model_title)
+
         neg = negative_prompt or self.default_negative_prompt
+        # FLUX models typically use CFG 1.0 and empty negative prompt
+        is_flux = (model_title and "flux" in model_title.lower()) or (cfg_scale <= 1.5)
+        if is_flux:
+            neg = ""
+
         try:
             payload = {
                 "prompt": prompt,
                 "negative_prompt": neg,
                 "steps": steps,
-                "cfg_scale": 7.0,
+                "cfg_scale": cfg_scale,
                 "width": width,
                 "height": height,
-                "sampler_name": "Euler a"
+                "sampler_name": sampler_name or ("Euler" if is_flux else "Euler a")
             }
             response = requests.post(
                 url=f"{self.local_url}/sdapi/v1/txt2img",
                 json=payload,
-                timeout=120
+                timeout=180
             )
             if response.status_code == 200:
                 r = response.json()

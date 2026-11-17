@@ -47,18 +47,30 @@ export default function ImageGenView() {
       const models = res.data.models || []
       setAvailableModels(models)
       if (models.length > 0 && !models.some(m => m.id === selectedModel)) {
-        setSelectedModel(models[0].id)
+        handleModelChange(models[0].id, models)
       }
     } catch {
       // Fallback explicit models list without auto
       const fallbackList = [
-        { id: 'local', name: 'DreamShaper 8 (Local SD Forge)', source: 'forge', description: 'Local SD Forge — High speed on NVIDIA RTX GPU' },
-        { id: 'pollinations:flux', name: 'FLUX.1 Schnell (Cloud)', source: 'pollinations', description: 'Exceptional detail, high photorealism' },
-        { id: 'pollinations:flux-realism', name: 'FLUX Realism (Cloud)', source: 'pollinations', description: 'Tuned for realistic skin, portraiture & textures' },
-        { id: 'pollinations:flux-anime', name: 'FLUX Anime (Cloud)', source: 'pollinations', description: 'Stylized anime, concept art, and digital illustrations' },
-        { id: 'pollinations:turbo', name: 'Pollinations Turbo (Cloud)', source: 'pollinations', description: 'Fast cloud generation with clean prompt adherence' },
+        { id: 'local', name: 'DreamShaper 8 (Local SD 1.5)', source: 'forge', category: 'SD1.5', description: 'Local SD Forge — High speed on NVIDIA RTX GPU', default_steps: 20, default_dim: 512 },
+        { id: 'pollinations:flux', name: 'FLUX.1 Schnell (Cloud)', source: 'pollinations', category: 'Cloud', description: 'Exceptional detail, high photorealism (4 steps)', default_steps: 4, default_dim: 1024 },
+        { id: 'pollinations:flux-realism', name: 'FLUX Realism (Cloud)', source: 'pollinations', category: 'Cloud', description: 'Tuned for realistic skin, portraiture & textures', default_steps: 4, default_dim: 1024 },
+        { id: 'pollinations:flux-anime', name: 'FLUX Anime (Cloud)', source: 'pollinations', category: 'Cloud', description: 'Stylized anime, concept art, and digital illustrations', default_steps: 4, default_dim: 1024 },
+        { id: 'pollinations:turbo', name: 'Pollinations Turbo (Cloud)', source: 'pollinations', category: 'Cloud', description: 'Fast cloud generation with clean prompt adherence', default_steps: 20, default_dim: 512 },
       ]
       setAvailableModels(fallbackList)
+    }
+  }
+
+  const handleModelChange = (modelId, models = availableModels) => {
+    setSelectedModel(modelId)
+    const m = models.find(item => item.id === modelId)
+    if (m) {
+      if (m.default_steps) setSteps(m.default_steps)
+      if (m.default_dim) {
+        setWidth(m.default_dim)
+        setHeight(m.default_dim)
+      }
     }
   }
 
@@ -135,10 +147,12 @@ export default function ImageGenView() {
   }
 
   const sizePresets = [
-    { label: '512×512', w: 512, h: 512 },
-    { label: '512×768', w: 512, h: 768 },
-    { label: '768×512', w: 768, h: 512 },
-    { label: '768×768', w: 768, h: 768 },
+    { label: '512×512 (SD 1:1)', w: 512, h: 512 },
+    { label: '512×768 (SD Port)', w: 512, h: 768 },
+    { label: '768×512 (SD Land)', w: 768, h: 512 },
+    { label: '1024×1024 (FLUX 1:1)', w: 1024, h: 1024 },
+    { label: '896×1152 (FLUX Port)', w: 896, h: 1152 },
+    { label: '1152×896 (FLUX Land)', w: 1152, h: 896 },
   ]
 
   return (
@@ -177,7 +191,7 @@ export default function ImageGenView() {
             <div className="relative">
               <select
                 value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
+                onChange={(e) => handleModelChange(e.target.value)}
                 className="w-full px-4 py-3 rounded-lg appearance-none cursor-pointer text-sm"
                 style={{
                   background: 'var(--bg-tertiary)',
@@ -187,7 +201,9 @@ export default function ImageGenView() {
                 }}
               >
                 {availableModels.map(m => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
+                  <option key={m.id} value={m.id}>
+                    {m.category ? `[${m.category}] ` : ''}{m.name}
+                  </option>
                 ))}
               </select>
               <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"

@@ -618,11 +618,37 @@ async def list_image_models():
         if resp.status_code == 200:
             for item in resp.json():
                 title = item.get("title") or item.get("model_name") or "Local Model"
+                title_lower = title.lower()
+                
+                # Determine model architecture family
+                if "flux" in title_lower:
+                    category = "FLUX"
+                    desc = f"Local FLUX model (4-step Schnell / NF4 high fidelity): {item.get('filename', title)}"
+                    default_steps = 4
+                    default_cfg = 1.0
+                    default_dim = 1024
+                elif "xl" in title_lower or "sdxl" in title_lower:
+                    category = "SDXL"
+                    desc = f"Local SDXL model: {item.get('filename', title)}"
+                    default_steps = 25
+                    default_cfg = 6.0
+                    default_dim = 1024
+                else:
+                    category = "SD1.5"
+                    desc = f"Local SD 1.5 checkpoint: {item.get('filename', title)}"
+                    default_steps = 20
+                    default_cfg = 7.0
+                    default_dim = 512
+
                 models.append({
                     "id": f"local:{title}",
-                    "name": f"{title} (Local SD Forge)",
+                    "name": f"{title} (Local {category})",
                     "source": "forge",
-                    "description": f"Local GPU checkpoint: {item.get('filename', title)}"
+                    "category": category,
+                    "description": desc,
+                    "default_steps": default_steps,
+                    "default_cfg": default_cfg,
+                    "default_dim": default_dim,
                 })
             forge_detected = True
     except Exception:
@@ -631,9 +657,13 @@ async def list_image_models():
     if not forge_detected:
         models.append({
             "id": "local",
-            "name": "DreamShaper 8 (Local SD Forge)",
+            "name": "DreamShaper 8 (Local SD 1.5)",
             "source": "forge",
-            "description": "Local SD Forge running DreamShaper 8 on NVIDIA RTX GPU"
+            "category": "SD1.5",
+            "description": "Local SD Forge running DreamShaper 8 on NVIDIA RTX GPU",
+            "default_steps": 20,
+            "default_cfg": 7.0,
+            "default_dim": 512,
         })
 
     # 2. Specific Cloud Pollinations AI Models
@@ -642,25 +672,41 @@ async def list_image_models():
             "id": "pollinations:turbo",
             "name": "Pollinations Turbo (Cloud)",
             "source": "pollinations",
-            "description": "Fast generation with clean prompt adherence"
+            "category": "Cloud",
+            "description": "Fast generation with clean prompt adherence",
+            "default_steps": 20,
+            "default_cfg": 7.0,
+            "default_dim": 512,
         },
         {
             "id": "pollinations:flux",
             "name": "FLUX.1 Schnell (Cloud)",
             "source": "pollinations",
-            "description": "State-of-the-art open weights model with exceptional photorealism"
+            "category": "Cloud",
+            "description": "State-of-the-art open weights model with exceptional photorealism",
+            "default_steps": 4,
+            "default_cfg": 1.0,
+            "default_dim": 1024,
         },
         {
             "id": "pollinations:flux-realism",
             "name": "FLUX Realism (Cloud)",
             "source": "pollinations",
-            "description": "Tuned specifically for realistic lighting, skin textures, and portraits"
+            "category": "Cloud",
+            "description": "Tuned specifically for realistic lighting, skin textures, and portraits",
+            "default_steps": 4,
+            "default_cfg": 1.0,
+            "default_dim": 1024,
         },
         {
             "id": "pollinations:flux-anime",
             "name": "FLUX Anime (Cloud)",
             "source": "pollinations",
-            "description": "Specialized artistic anime and illustration styling"
+            "category": "Cloud",
+            "description": "Specialized artistic anime and illustration styling",
+            "default_steps": 4,
+            "default_cfg": 1.0,
+            "default_dim": 1024,
         }
     ])
 
@@ -692,16 +738,31 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
         except Exception as e:
             logger.warning(f"GPU scheduler park failed: {e}")
 
+        # Extract specific model checkpoint name if present
+        checkpoint_title = None
+        if model_choice.startswith("local:"):
+            checkpoint_title = model_choice[len("local:"):]
+
+        # Smart defaults for FLUX vs standard checkpoints
+        is_flux = (checkpoint_title and "flux" in checkpoint_title.lower()) or "flux" in model_choice.lower()
+        steps = req.steps or (4 if is_flux else 20)
+        cfg = 1.0 if is_flux else 7.0
+        width = req.width or (1024 if is_flux else 512)
+        height = req.height or (1024 if is_flux else 512)
+
         img_bytes = await asyncio.to_thread(
             rt.image_gen._generate_local,
             working_prompt,
             req.negative_prompt or "",
-            req.steps or 20,
-            req.width or 512,
-            req.height or 512
+            steps,
+            width,
+            height,
+            cfg,
+            "Euler" if is_flux else "Euler a",
+            checkpoint_title
         )
         if img_bytes:
-            source = f"Local SD ({model_choice})"
+            source = f"Local SD ({checkpoint_title or 'Default'})"
         else:
             raise HTTPException(503, "Local Stable Diffusion Forge is offline or failed to generate. Please ensure Forge is running on port 7860.")
 
