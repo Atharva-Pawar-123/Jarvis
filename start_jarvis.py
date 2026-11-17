@@ -33,8 +33,21 @@ def main():
     processes = []
 
     try:
-        # 1. Start the FastAPI backend server
-        print("\n[1/2] Starting JARVIS Core API Server (Port 8080)...")
+        # 1. Start Local Stable Diffusion Forge Engine (Port 7860)
+        forge_bat = ROOT_DIR / "tools" / "forge" / "start_forge_api.bat"
+        if forge_bat.exists():
+            print("\n[1/3] Starting Local Stable Diffusion Forge Engine (Port 7860)...")
+            forge_proc = subprocess.Popen(
+                ["cmd.exe", "/c", str(forge_bat)],
+                cwd=str(ROOT_DIR / "tools" / "forge"),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            processes.append(("SD Forge Engine", forge_proc))
+        else:
+            print("\n[!] Local Forge directory not found; skipping local SD startup.")
+
+        # 2. Start the FastAPI backend server
+        print("\n[2/3] Starting JARVIS Core API Server (Port 8080)...")
         api_cmd = [
             str(VENV_PYTHON),
             "-m",
@@ -48,11 +61,11 @@ def main():
         api_proc = subprocess.Popen(api_cmd, cwd=str(ROOT_DIR))
         processes.append(("Backend API", api_proc))
 
-        # Give API server a couple of seconds to bind
-        time.sleep(2)
+        # Give API server and Forge a few moments to bind
+        time.sleep(3)
 
-        # 2. Start Vite & Electron desktop HUD
-        print("[2/2] Starting Electron Desktop HUD & Vite UI...")
+        # 3. Start Vite & Electron desktop HUD
+        print("\n[3/3] Starting Electron Desktop HUD & Vite UI...")
         npm_cmd = ["cmd.exe", "/c", "npm", "run", "electron:dev"]
         electron_proc = subprocess.Popen(npm_cmd, cwd=str(APP_DIR))
         processes.append(("Desktop HUD", electron_proc))
