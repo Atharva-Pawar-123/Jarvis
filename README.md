@@ -84,7 +84,7 @@ The desktop app in `app/` is a unified Electron + React client:
    - Toggle voice speech responses (Mute/Unmute TTS).
 
 3. **🎨 Image Gen Studio**:
-   - Model selector: choose between **Auto (Best Available)**, **DreamShaper 8 (Local SD)**, and **Pollinations AI (Cloud)**.
+   - Model selector: choose explicitly between **DreamShaper 8 (Local SD Forge on GPU)**, **FLUX.1 Schnell (Cloud)**, **FLUX Realism (Cloud)**, **FLUX Anime (Cloud)**, or **Pollinations Turbo (Cloud)** — no automatic fallbacks, direct user control.
    - Prompt input supporting text typing (default) or voice dictation via microphone.
    - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 768×768).
    - Gallery strip with full-resolution preview, prompt reuse, and direct PNG download.

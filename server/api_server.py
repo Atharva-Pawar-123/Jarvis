@@ -509,22 +509,11 @@ async def clear_memory(x_confirm: Optional[str] = Header(None), rt: JarvisRuntim
 # ── Image Generation Endpoints ───────────────────────────────────────
 @app.get("/api/image/models")
 async def list_image_models():
-    """List available image generation models (Local Forge + Pollinations)."""
-    models = [
-        {
-            "id": "auto",
-            "name": "Auto (Best Available)",
-            "source": "auto",
-            "description": "Local SD Forge if running, otherwise free cloud Pollinations AI"
-        },
-        {
-            "id": "pollinations",
-            "name": "Pollinations AI (Cloud)",
-            "source": "pollinations",
-            "description": "Free cloud generation — No local GPU load, high aesthetic quality"
-        }
-    ]
+    """List available image generation models explicitly without auto fallback."""
+    models = []
 
+    # 1. Local Forge Models (Detected or Default Checkpoint)
+    forge_detected = False
     try:
         import requests
         forge_url = getattr(config, "SD_LOCAL_URL", "http://127.0.0.1:7860")
@@ -532,19 +521,51 @@ async def list_image_models():
         if resp.status_code == 200:
             for item in resp.json():
                 title = item.get("title") or item.get("model_name") or "Local Model"
-                models.insert(1, {
+                models.append({
                     "id": f"local:{title}",
-                    "name": f"{title} (Local SD)",
+                    "name": f"{title} (Local SD Forge)",
                     "source": "forge",
-                    "description": f"Local Forge checkpoint: {item.get('filename', title)}"
+                    "description": f"Local GPU checkpoint: {item.get('filename', title)}"
                 })
+            forge_detected = True
     except Exception:
-        models.insert(1, {
+        pass
+
+    if not forge_detected:
+        models.append({
             "id": "local",
-            "name": "DreamShaper 8 (Local SD)",
+            "name": "DreamShaper 8 (Local SD Forge)",
             "source": "forge",
-            "description": "Local SD Forge on GPU (auto-starts if available)"
+            "description": "Local SD Forge running DreamShaper 8 on NVIDIA RTX GPU"
         })
+
+    # 2. Specific Cloud Pollinations AI Models
+    models.extend([
+        {
+            "id": "pollinations:turbo",
+            "name": "Pollinations Turbo (Cloud)",
+            "source": "pollinations",
+            "description": "Fast generation with clean prompt adherence"
+        },
+        {
+            "id": "pollinations:flux",
+            "name": "FLUX.1 Schnell (Cloud)",
+            "source": "pollinations",
+            "description": "State-of-the-art open weights model with exceptional photorealism"
+        },
+        {
+            "id": "pollinations:flux-realism",
+            "name": "FLUX Realism (Cloud)",
+            "source": "pollinations",
+            "description": "Tuned specifically for realistic lighting, skin textures, and portraits"
+        },
+        {
+            "id": "pollinations:flux-anime",
+            "name": "FLUX Anime (Cloud)",
+            "source": "pollinations",
+            "description": "Specialized artistic anime and illustration styling"
+        }
+    ])
 
     return {"models": models}
 
@@ -565,28 +586,15 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
 
     img_bytes = None
     source = "Unknown"
-    model_choice = req.model or "auto"
+    model_choice = req.model or "local"
 
     # GPU VRAM Coordination: park Ollama models before local SD Forge generation
-    if model_choice in ("local", "auto") or model_choice.startswith("local:"):
+    if model_choice == "local" or model_choice.startswith("local:"):
         try:
             await rt.gpu_scheduler.prepare_for_image_gen()
         except Exception as e:
             logger.warning(f"GPU scheduler park failed: {e}")
 
-    if model_choice == "pollinations":
-        img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt)
-    elif model_choice == "local" or model_choice.startswith("local:"):
-        img_bytes = await asyncio.to_thread(
-            rt.image_gen._generate_local,
-            working_prompt,
-            req.negative_prompt or "",
-            req.steps or 20,
-            req.width or 512,
-            req.height or 512
-        )
-        source = "Local Stable Diffusion" if img_bytes else None
-    else:
         img_bytes = await asyncio.to_thread(
             rt.image_gen._generate_local,
             working_prompt,
@@ -596,12 +604,33 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
             req.height or 512
         )
         if img_bytes:
-            source = "Local Stable Diffusion"
+            source = f"Local SD ({model_choice})"
         else:
-            img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt)
+            raise HTTPException(503, "Local Stable Diffusion Forge is offline or failed to generate. Please ensure Forge is running on port 7860.")
+
+    elif model_choice.startswith("pollinations") or model_choice == "pollinations":
+        # Extract sub-model if specified (e.g. pollinations:flux -> flux)
+        submodel = "turbo"
+        if ":" in model_choice:
+            submodel = model_choice.split(":", 1)[1]
+        img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt, submodel)
+        if not img_bytes:
+            raise HTTPException(502, f"Pollinations AI ({submodel}) failed to generate the image.")
+
+    else:
+        # Default to local
+        img_bytes = await asyncio.to_thread(
+            rt.image_gen._generate_local,
+            working_prompt,
+            req.negative_prompt or "",
+            req.steps or 20,
+            req.width or 512,
+            req.height or 512
+        )
+        source = "Local SD" if img_bytes else "Unknown"
 
     if not img_bytes:
-        raise HTTPException(500, "Image generation failed on all available engines.")
+        raise HTTPException(500, "Image generation failed on selected engine.")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"gen_{timestamp}.png"
@@ -622,11 +651,11 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
     }
 
 
-def _generate_pollinations_direct(prompt: str):
+def _generate_pollinations_direct(prompt: str, submodel: str = "turbo"):
     import urllib.parse
     import requests
     encoded = urllib.parse.quote(prompt.strip())
-    url = f"https://image.pollinations.ai/prompt/{encoded}?nologo=true&model=turbo"
+    url = f"https://image.pollinations.ai/prompt/{encoded}?nologo=true&model={submodel}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -634,13 +663,13 @@ def _generate_pollinations_direct(prompt: str):
         try:
             resp = requests.get(url, headers=headers, timeout=60)
             if resp.status_code == 200 and resp.content:
-                return resp.content, "Pollinations AI (Cloud)"
+                return resp.content, f"Pollinations AI ({submodel})"
             elif resp.status_code in (402, 429, 503):
                 time.sleep(4)
         except Exception as e:
             logger.warning(f"Pollinations attempt {attempt+1} failed: {e}")
             time.sleep(2)
-    return None, "Pollinations AI (Failed)"
+    return None, f"Pollinations AI ({submodel}) (Failed)"
 
 
 # ── Vision Endpoints ─────────────────────────────────────────────────
