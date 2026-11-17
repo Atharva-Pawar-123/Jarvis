@@ -46,9 +46,12 @@ class AutonomousWorkflowEngine:
         return task_id
 
     async def _run_goal_pipeline(self, task_id: str, goal: str):
-        """Pipeline executing the decomposed subtasks."""
+        """Pipeline executing the decomposed subtasks with live cancellation checking."""
         logger.info(f"Starting pipeline execution for task {task_id}: {goal}")
         try:
+            if self.task_manager.is_cancelled(task_id):
+                return
+
             # Step 1: Decompose Goal
             self.task_manager.update_progress(
                 task_id=task_id,
@@ -74,6 +77,9 @@ class AutonomousWorkflowEngine:
             except Exception:
                 pass
 
+            if self.task_manager.is_cancelled(task_id):
+                return
+
             # Step 2: Execute First Subtask
             self.task_manager.update_progress(
                 task_id=task_id,
@@ -86,6 +92,9 @@ class AutonomousWorkflowEngine:
                 query=f"Autonomous Goal: {goal}. Subtask 1: {steps[0]}",
                 conversation_history=[]
             )
+
+            if self.task_manager.is_cancelled(task_id):
+                return
 
             # Step 3: Execute Second Subtask
             step2_desc = steps[1] if len(steps) > 1 else "Execution and data compilation"
@@ -101,6 +110,9 @@ class AutonomousWorkflowEngine:
                 conversation_history=[]
             )
 
+            if self.task_manager.is_cancelled(task_id):
+                return
+
             # Step 4: Execute Third Subtask
             step3_desc = steps[2] if len(steps) > 2 else "Final verification and detail consolidation"
             self.task_manager.update_progress(
@@ -114,6 +126,9 @@ class AutonomousWorkflowEngine:
                 query=f"Context from previous steps:\n{step1_out}\n\n{step2_out}\n\nExecute subtask 3: {step3_desc}",
                 conversation_history=[]
             )
+
+            if self.task_manager.is_cancelled(task_id):
+                return
 
             # Step 5: Final Synthesis & Completion
             self.task_manager.update_progress(
@@ -134,6 +149,8 @@ class AutonomousWorkflowEngine:
 
             self.task_manager.complete_task(task_id, final_deliverable)
 
+        except asyncio.CancelledError:
+            logger.info(f"Task pipeline [{task_id}] terminated due to user cancellation.")
         except Exception as e:
             logger.error(f"Autonomous workflow {task_id} failed: {e}", exc_info=True)
             self.task_manager.fail_task(task_id, str(e))

@@ -567,6 +567,13 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
     source = "Unknown"
     model_choice = req.model or "auto"
 
+    # GPU VRAM Coordination: park Ollama models before local SD Forge generation
+    if model_choice in ("local", "auto") or model_choice.startswith("local:"):
+        try:
+            await rt.gpu_scheduler.prepare_for_image_gen()
+        except Exception as e:
+            logger.warning(f"GPU scheduler park failed: {e}")
+
     if model_choice == "pollinations":
         img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt)
     elif model_choice == "local" or model_choice.startswith("local:"):
