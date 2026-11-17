@@ -69,22 +69,27 @@ class VisionEngine:
         # -------------------------------------------------------------------------------
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        revision = getattr(config, "VISION_REVISION", None)
         logger.info(
             f"Loading Moondream2 model '{config.VISION_MODEL}' "
-            f"on {device} (revision={config.VISION_REVISION})..."
+            f"on {device} (revision={revision})..."
         )
 
+        tokenizer_kwargs = {"trust_remote_code": True}
+        if revision:
+            tokenizer_kwargs["revision"] = revision
         self._tokenizer = AutoTokenizer.from_pretrained(
             config.VISION_MODEL,
-            revision=config.VISION_REVISION,
-            trust_remote_code=True,
+            **tokenizer_kwargs,
         )
 
         # --- Config patching to bypass pad_token_id and rope_scaling missing errors ---
+        config_kwargs = {"trust_remote_code": True}
+        if revision:
+            config_kwargs["revision"] = revision
         model_config = AutoConfig.from_pretrained(
             config.VISION_MODEL,
-            revision=config.VISION_REVISION,
-            trust_remote_code=True,
+            **config_kwargs,
         )
         if hasattr(model_config, 'text_config'):
             model_config.text_config.pad_token_id = self._tokenizer.eos_token_id
@@ -92,12 +97,16 @@ class VisionEngine:
                 model_config.text_config.rope_scaling = None
         # ------------------------------------------------------------------------------
 
+        model_kwargs = {
+            "trust_remote_code": True,
+            "config": model_config,
+            "device_map": device,
+        }
+        if revision:
+            model_kwargs["revision"] = revision
         self._model = AutoModelForCausalLM.from_pretrained(
             config.VISION_MODEL,
-            revision=config.VISION_REVISION,
-            trust_remote_code=True,
-            config=model_config,
-            device_map=device,
+            **model_kwargs,
         )
         self._model.eval()
         logger.info(f"Moondream2 loaded on {device} and ready.")

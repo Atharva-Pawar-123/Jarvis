@@ -27,6 +27,7 @@ const useJarvisStore = create((set, get) => ({
   // ── Streaming ─────────────────────────────────────────────────
   isStreaming: false,
   streamingContent: '',
+  agentSteps: [], // List of intermediate reasoning steps
 
   // ── UI ────────────────────────────────────────────────────────
   activeTab: 'chat', // chat | voice | imagegen | hud | memory | settings
@@ -132,7 +133,13 @@ const useJarvisStore = create((set, get) => ({
   appendStreamToken: (token) =>
     set((s) => ({ streamingContent: s.streamingContent + token })),
 
-  resetStream: () => set({ streamingContent: '', isStreaming: false }),
+  addAgentStep: (step) =>
+    set((s) => ({ agentSteps: [...s.agentSteps, step] })),
+
+  clearAgentSteps: () =>
+    set({ agentSteps: [] }),
+
+  resetStream: () => set({ streamingContent: '', isStreaming: false, agentSteps: [] }),
 
   // ── Update session title (from WS title_update) ───────────────
   updateSessionTitle: (sessionId, title) =>

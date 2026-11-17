@@ -10,6 +10,8 @@ export default function useWebSocket(sessionId) {
     setConnected,
     setJarvisState,
     appendStreamToken,
+    addAgentStep,
+    clearAgentSteps,
     setStreaming,
     resetStream,
     updateSessionTitle,
@@ -46,6 +48,11 @@ export default function useWebSocket(sessionId) {
 
           case 'state':
             setJarvisState(data.state)
+            break
+
+          case 'agent_step':
+            setJarvisState('thinking')
+            addAgentStep(data.step)
             break
 
           case 'complete':
