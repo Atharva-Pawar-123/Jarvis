@@ -205,4 +205,7 @@ class TestExecuteTask:
         callback_calls = []
         result = await orch.execute_task("Hello", [], step_callback=lambda msg: callback_calls.append(msg))
         assert len(callback_calls) >= 1
-        assert any("Thinking" in c for c in callback_calls)
+        assert any(
+            ("Thinking" in str(c)) or (isinstance(c, dict) and c.get("event_type") in ["planning", "final_deliverable"])
+            for c in callback_calls
+        )

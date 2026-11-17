@@ -57,6 +57,7 @@ class TestDynamicSkillDiscovery:
     def test_calculator_missing_param_handled(self, skill_registry, tool_registry):
         skill_registry.discover_and_mount(tool_registry)
 
+        # In V2.2, schema validation strictly rejects calls missing required parameters
         res = tool_registry.execute("skill_calculator", {})
-        assert res.success is True
-        assert "No expression provided" in res.result or "result" in res.result
+        assert res.success is False
+        assert "Schema validation failed" in res.error or "expression" in res.error
