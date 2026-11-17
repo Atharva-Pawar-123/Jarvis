@@ -145,6 +145,22 @@ ipcMain.on('window-maximize', () => {
 ipcMain.on('window-close', () => mainWindow.hide())
 ipcMain.on('open-external', (_, url) => shell.openExternal(url))
 
+// Local Auth Token provider for renderer
+ipcMain.on('get-auth-token', (event) => {
+  const fs = require('fs')
+  const projectRoot = path.resolve(__dirname, '..', '..')
+  const tokenFile = path.join(projectRoot, 'data', '.jarvis_local_token')
+  try {
+    if (fs.existsSync(tokenFile)) {
+      event.returnValue = fs.readFileSync(tokenFile, 'utf8').trim()
+      return
+    }
+  } catch (err) {
+    console.error('[JARVIS] Could not read token file:', err)
+  }
+  event.returnValue = ''
+})
+
 // ── APP LIFECYCLE ──────────────────────────────────────────────────
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark'

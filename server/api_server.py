@@ -73,7 +73,6 @@ ALLOWED_ORIGINS = [
     "http://localhost:8080",
     "http://127.0.0.1:8080",
     "electron://*",
-    "null"  # Electron local file origins
 ]
 
 app.add_middleware(
@@ -91,6 +90,33 @@ SETTINGS_FILE = config.DATA_DIR / "user_settings.json"
 # ── Dependency: Runtime Accessor ──────────────────────────────────────
 def get_runtime(request: Request) -> JarvisRuntime:
     return request.app.state.jarvis
+
+
+# ── Authentication Middleware ─────────────────────────────────────────
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Enforces mandatory authentication on all /api/ endpoints except health."""
+    path = request.url.path
+    if request.method == "OPTIONS" or path in ("/health", "/api/health", "/"):
+        return await call_next(request)
+
+    if path.startswith("/api/"):
+        auth_header = request.headers.get("Authorization") or ""
+        token = ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif "x-api-key" in request.headers:
+            token = request.headers["x-api-key"].strip()
+
+        if not token or token != LOCAL_AUTH_TOKEN:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized: Valid local authentication token required."},
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+
+    return await call_next(request)
 
 
 # ── Pydantic Models ───────────────────────────────────────────────────
@@ -200,8 +226,7 @@ async def health(request: Request):
         "version": "3.1",
         "ollama": ollama_ok,
         "uptime_seconds": int(time.time() - START_TIME),
-        "auth_required": False,
-        "token": LOCAL_AUTH_TOKEN
+        "auth_required": True
     }
 
 
@@ -824,6 +849,13 @@ async def rotate_api_key(key_id: str, rt: JarvisRuntime = Depends(get_runtime)):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(ws: WebSocket, session_id: str):
+    # Authenticate WebSocket handshake via query param or header
+    token = ws.query_params.get("token") or ws.headers.get("x-auth-token")
+    if not token or token != LOCAL_AUTH_TOKEN:
+        logger.warning(f"Rejecting unauthenticated WebSocket connection to session: {session_id}")
+        await ws.close(code=1008)  # Policy Violation
+        return
+
     rt: JarvisRuntime = ws.app.state.jarvis
     await rt.manager.connect(ws, session_id)
     rt.session_db.create_session(session_id)

@@ -120,20 +120,22 @@ class JarvisRuntime:
             logger.warning(f"Could not initialize ImageGenerationEngine: {e}")
 
         # ── Wire Permission Approval Callback to WebSocket Broadcast ──
-        async def ui_approval_callback(action: str, details: dict) -> bool:
+        async def ui_approval_callback(action: str, details: dict, session_id: Optional[str] = None, **kw) -> bool:
             import uuid
             request_id = str(uuid.uuid4())
             fut = self.permission_engine.register_approval_request(request_id)
             
-            # Broadcast approval request to active WebSocket sessions
+            # Target specific session if known, otherwise notify all active sessions
+            target_sessions = [session_id] if (session_id and session_id in self.manager.active) else list(self.manager.active.keys())
+
             payload = {
                 "type": "approval_required",
                 "request_id": request_id,
                 "action": action,
                 "details": details
             }
-            logger.info(f"Emitting approval request to UI: {payload}")
-            for sid in list(self.manager.active.keys()):
+            logger.info(f"Emitting approval request to sessions {target_sessions}: {payload}")
+            for sid in target_sessions:
                 await self.manager.send_to_session(sid, payload)
 
             # Wait for user decision with 45s timeout
