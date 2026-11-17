@@ -7,15 +7,15 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the **V2.1 Reliability & Production Hardening Sprint**, JARVIS evolves from a reactive assistant into an enterprise-grade desktop intelligence platform:
-- **Unified Runtime Container (`JarvisRuntime`)**: Single-source-of-truth container holding all module singletons, eliminating fragmented module-level globals across FastAPI and the voice daemon.
-- **Canonical Tool Protocol & Schema Validation**: Strongly typed Pydantic parameter schemas (`CanonicalTool`) providing exact contracts for LLM tool calling and self-documenting APIs.
-- **Interactive Security Authorization Gate**: High-risk operations (code execution, emails, deletions) trigger interactive WebSocket approval cards with 45-second timeouts and in-memory session caches.
-- **Hardened Subprocess Sandbox**: Sanitized environments stripping all API tokens, cloud credentials, and sensitive environment variables (`GMAIL_*`, `AWS_*`, `*SECRET*`, `*PASSWORD*`) with execution timeouts.
-- **Restart-Surviving Task Manager**: Checkpointed state machine in SQLite with live `asyncio.Event` cancellation tokens and automatic recovery of interrupted tasks upon reboot.
-- **Tactical Desktop HUD & Task Command Center**: Real-time circular meters for CPU, RAM, GPU VRAM & temperature, interactive 4-tier memory inspector (Working, Episodic, Semantic, Procedural), and background goal launcher.
+With the completion of the **V2.1 Reliability & Production Hardening Sprint**, JARVIS has evolved from a reactive desktop helper into an enterprise-grade, self-correcting desktop intelligence system:
+- **Unified Runtime Container (`JarvisRuntime`)**: Single-source-of-truth application container holding all module singletons, eliminating fragmented module-level globals across FastAPI and the voice daemon.
+- **Canonical Tool Protocol & Strict Schemas**: Strongly-typed Pydantic contracts (`CanonicalTool`) providing exact validation, execution timeouts, and self-documenting JSON schemas for LLM tool calling.
+- **Interactive Security Authorization Gate**: High-risk actions (code execution, email sending, file deletion, system power) trigger real-time amber approval cards in the UI with a 45-second timeout and session memory caching.
+- **Hardened Subprocess Sandbox**: Sanitized subprocess environments stripping cloud and personal API tokens (`GMAIL_*`, `AWS_*`, `HA_*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`) with memory limits and execution deadlines.
+- **Restart-Surviving Task Manager**: Checkpointed state machine in SQLite with live `asyncio.Event` cancellation tokens, dynamic subtask DAG tracking, and automatic recovery of interrupted tasks upon system reboot.
+- **Tactical Desktop HUD & Task Center**: Real-time circular telemetry dials (CPU, RAM, GPU VRAM & temp), an interactive background task launcher with live progress bars, and a 4-tier cognitive memory inspector (Working, Episodic, Semantic, Procedural).
 - **Hardware-Aware GPU Scheduler**: Manages mutually exclusive execution between Qwen LLM reasoning and Stable Diffusion Forge image generation to eliminate CUDA Out-of-Memory crashes on 6GB VRAM GPUs.
-- **Automated Regression Test Suite**: 61 comprehensive tests covering orchestrator reasoning, permissions, sandbox security, background tasks, and GPU scheduling.
+- **Automated Regression Test Suite**: 61 comprehensive pytest tests covering orchestrator reasoning loops, security policies, sandbox isolation, background tasks, and GPU scheduling.
 
 ---
 
@@ -29,16 +29,18 @@ With the **V2.1 Reliability & Production Hardening Sprint**, JARVIS evolves from
 |    * 🎙️ Voice View (Push-to-talk Arc Reactor Orb, transcript, British TTS)   |
 |    * 🎨 Image Studio (Local Forge SD + Pollinations AI with model selector) |
 |    * 📊 HUD Dashboard (Real-time CPU, RAM, GPU VRAM & system telemetry)     |
-|    * 🧠 Memory Inspector, Task Monitor, and Settings Configuration         |
+|    * 📋 Task Center (Autonomous goal launcher, progress bars, cancellation) |
+|    * 🧠 4-Tier Memory Inspector (Working, Episodic, Semantic RAG, Procedural|
+|    * ⚙️ Settings Configuration (Model selector, TTS switches, API keys)    |
 |  - Voice Daemon: OpenWakeWord ("hey_jarvis") + faster-whisper + Piper TTS   |
 +─────────────────────────────────────────────────────────────────────────────+
                                        │
                                        ▼
 +─────────────────────────────────────────────────────────────────────────────+
-|                         CENTRAL NERVOUS SYSTEM                              |
-|  - Unified Agent Orchestrator: Goal decomposition, ReAct reasoning & tools  |
+|                    UNIFIED RUNTIME CONTAINER (JarvisRuntime)                |
+|  - Unified Agent Orchestrator: Multi-step reasoning loops & tool calling    |
 |  - server/api_server.py: FastAPI REST & Scoped WebSocket Server (Port 8080) |
-|  - Persistent Task Engine: Checkpointed state machine in SQLite             |
+|  - Persistent Task Engine: SQLite checkpointing with cancellation tokens    |
 +─────────────────────────────────────────────────────────────────────────────+
                                        │
         ┌──────────────────────────────┼──────────────────────────────┐
@@ -49,7 +51,7 @@ With the **V2.1 Reliability & Production Hardening Sprint**, JARVIS evolves from
 | - qwen2.5:7b    |          | - faster-whisper  |          | - Permission Gate|
 | - qwen2.5:1.5b  |          | - Piper TTS (alan)|          | - Hardened Sandbox
 | - nomic-embed   |          | - OpenWakeWord    |          | - Win32 UI & Web |
-| - llava:7b      |          | - SD WebUI Forge  |          | - MCP & Skills   |
+| - llava:7b      |          | - SD WebUI Forge  |          | - Dynamic Skills |
 +─────────────────+          +───────────────────+          +──────────────────+
 ```
 
@@ -71,7 +73,8 @@ The desktop app in `app/` is a unified Electron + React client:
 1. **💬 Chat View (Default AI Chat)**:
    - Type messages directly to JARVIS and receive token-by-token streaming responses.
    - Formatted with Markdown, code highlighting, copy buttons, and multi-session conversation history.
-   - Live status indicator displaying current agent reasoning steps (e.g. *Searching web*, *Reading file*, *Inspecting screen*).
+   - Live collapsible **"Thinking & Reasoning"** status indicator displaying step-by-step agent planning.
+   - Interactive amber **Security Authorization Card** for one-click human-in-the-loop approvals.
    - Optional microphone dictation directly in the chat bar.
 
 2. **🎙️ Voice Chat View**:
@@ -86,9 +89,20 @@ The desktop app in `app/` is a unified Electron + React client:
    - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 768×768).
    - Gallery strip with full-resolution preview, prompt reuse, and direct PNG download.
 
-4. **📊 HUD Dashboard & Task Monitor**:
-   - Live system gauges for CPU, RAM, GPU VRAM usage, and temperatures.
-   - Visual inspect panel for active background tasks, checkpoints, and execution progress.
+4. **📊 HUD Dashboard**:
+   - Live circular telemetry meters for CPU load, RAM usage, GPU VRAM allocation, and core temperatures.
+   - Status indicators showing active VRAM consumers (`llm` vs `forge`), uptime, and active sessions.
+
+5. **📋 Task Command Center**:
+   - Background autonomous goal launcher with subtask estimation.
+   - Real-time task status pills (`QUEUED`, `RUNNING`, `COMPLETED`, `CANCELLED`, `INTERRUPTED`).
+   - Live progress bars and instant task cancellation buttons.
+
+6. **🧠 4-Tier Memory Inspector**:
+   - **Working Memory**: Active session cache and short-term dialogue buffer.
+   - **Episodic Memory**: Chronological action timeline and interaction history.
+   - **Semantic Memory**: Knowledge base search, interactive fact insertion, and memory deletion.
+   - **Procedural Memory**: Learned habits, automated execution patterns, and routines.
 
 ---
 
@@ -172,13 +186,15 @@ python -m pytest tests/v2/ -v
 | **Text Chat** | Conversational reasoning like ChatGPT/Claude | Type message in the **Chat** tab and press `Enter` |
 | **Dedicated Voice Chat** | Full-screen push-to-talk orb with transcript | Click the **Voice Chat** tab in the sidebar |
 | **Image Studio** | Multi-model image generation with gallery & presets | Click the **Image Gen** tab in the sidebar |
+| **Tactical HUD** | Live CPU, RAM, GPU VRAM & thermal gauges | Click the **HUD** tab in the sidebar |
+| **Task Center** | Launch, monitor, and cancel long-running goals | Click the **Tasks** tab in the sidebar |
+| **4-Tier Memory Inspector** | Search, add, or clear working/semantic/episodic memory | Click the **Memory** tab in the sidebar |
 | **Autonomous Workflows** | Goal decomposition and multi-step background tasks | *"Research AI tools and prepare a report"*, *"Organize my week"* |
 | **Voice Barge-In / Interruption** | Silences JARVIS mid-speech in ~50 ms | Say *"Hey Jarvis"* while he speaks, talk over him, or press **Escape** |
 | **Local Image Generation** | Renders images via local Forge or Pollinations | *"Generate an image of an Iron Man helmet on marble"*, *"Create a picture of..."* |
 | **Screen Vision & OCR** | Analyzes screen content or webcam feed | *"Describe my screen"*, *"Read the text on my screen"*, *"Look at webcam"* |
-| **Autonomous Code Engine** | Authors & runs Python/PowerShell scripts safely | *"Write a python script to solve Fibonacci and run it"*, *"Execute code to..."* |
+| **Autonomous Code Engine** | Authors & runs Python scripts in hardened sandbox | *"Write a python script to solve Fibonacci and run it"*, *"Execute code to..."* |
 | **Windows Automation** | Opens/closes apps, inspects windows, screenshots | *"Open Notepad"*, *"Close Spotify"*, *"Focus Chrome"*, *"Take a screenshot"* |
 | **System Diagnostics** | Real-time monitoring of CPU, RAM, & GPU | *"System status"*, *"Check GPU telemetry"* |
 | **Web & Live Information** | Web scraping, live search, weather, news | *"Search the web for..."*, *"What's the weather in London?"*, *"Get top news"* |
-| **4-Tier Cognitive Memory** | Semantic + BM25 fact storage & procedural habits | *"Remember that my favorite language is Python"*, *"Search memory for..."* |
 | **Smart Reminders** | Background scheduler with spoken alarms | *"Set a reminder in 10 minutes to take a break"*, *"Remind me at 5 PM"* |
