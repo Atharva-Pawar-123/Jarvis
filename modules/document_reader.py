@@ -95,13 +95,50 @@ class DocumentReader:
             return self.read_pdf(file_path)
         elif ext == ".docx":
             return self.read_docx(file_path)
-        elif ext in [".txt", ".log", ".py", ".md"]:
+        elif ext in [".txt", ".log", ".py", ".md", ".csv", ".json"]:
             try:
                 return path.read_text(encoding="utf-8")
             except Exception as exc:
                 return f"I could not read the text file, sir. Error: {exc}"
         else:
             return f"I do not support the {ext} file format yet, sir."
+
+    def ingest_to_memory(self, file_path: str, memory_engine, chunk_size: int = 1200, overlap: int = 150) -> int:
+        """
+        Reads document, chunks text, and indexes into Semantic RAG ChromaDB.
+        Returns the number of indexed chunks.
+        """
+        text = self.read(file_path)
+        if not text or text.startswith("I cannot find") or text.startswith("I failed"):
+            return 0
+
+        chunks = self.chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+        indexed = 0
+        file_name = Path(file_path).name
+
+        for i, chunk in enumerate(chunks):
+            try:
+                meta = {
+                    "source": file_name,
+                    "file_path": str(file_path),
+                    "chunk_index": i,
+                    "total_chunks": len(chunks),
+                    "category": "document"
+                }
+                if hasattr(memory_engine, "add_fact"):
+                    memory_engine.add_fact(f"[{file_name} Part {i+1}]: {chunk}", meta)
+                elif hasattr(memory_engine, "docs_col") and memory_engine.docs_col:
+                    import uuid
+                    memory_engine.docs_col.add(
+                        documents=[chunk],
+                        metadatas=[meta],
+                        ids=[f"doc_{uuid.uuid4().hex[:12]}"]
+                    )
+                indexed += 1
+            except Exception as e:
+                logger.warning(f"Failed to index chunk {i} of {file_name}: {e}")
+
+        return indexed
 
     def chunk_text(self, text: str, chunk_size: int = 1500, overlap: int = 200) -> list:
         """

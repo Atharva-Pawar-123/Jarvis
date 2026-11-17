@@ -92,6 +92,17 @@ class SmartHomeControlInput(BaseModel):
     device: str = Field(..., description="Name or identifier of the smart home device")
     action: str = Field(..., description="Action to perform, e.g. 'turn_on', 'turn_off', 'toggle'")
 
+class DeepResearchInput(BaseModel):
+    topic: str = Field(..., description="Subject or question for comprehensive multi-query research and synthesis")
+    max_subqueries: int = Field(3, description="Number of subqueries to investigate (default: 3)")
+
+class CodeProposalInput(BaseModel):
+    target_file: str = Field(..., description="Relative path of file to inspect, modify or repair")
+    task_instruction: str = Field(..., description="Instruction describing required code modifications or fixes")
+
+class IngestDocumentInput(BaseModel):
+    file_path: str = Field(..., description="Path to PDF, DOCX, or text file to ingest into Semantic RAG")
+
 class EmptyInput(BaseModel):
     pass
 
