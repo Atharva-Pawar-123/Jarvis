@@ -20,6 +20,13 @@ from modules.intent import DualModelIntentClassifier
 from modules.long_term_memory import HybridRAGMemory
 from modules.automation import AutomationEngine
 from modules.email_handler import EmailHandler
+from modules.whatsapp_handler import WhatsAppHandler
+from modules.web_search import WebSearchEngine
+from modules.weather import get_weather
+from modules.news import get_news
+from modules.scheduler import ReminderScheduler
+from modules.document_reader import DocumentReader
+from modules.iot_handler import IoTHandler
 from modules.vision import VisionEngine
 from modules.code_engine import CodeEngine
 from modules.image_gen import ImageGenerationEngine
@@ -33,6 +40,15 @@ from modules.agent.tool_registry import (
     ExecuteCodeInput,
     SearchMemoryInput,
     EmptyInput,
+    SendEmailInput,
+    ReadEmailInput,
+    SendWhatsAppInput,
+    WebSearchInput,
+    WeatherInput,
+    NewsInput,
+    SetReminderInput,
+    ReadDocumentInput,
+    SmartHomeControlInput,
 )
 from modules.agent.orchestrator import UnifiedAgentOrchestrator
 from modules.tasks.task_manager import PersistentTaskManager
@@ -80,6 +96,11 @@ class JarvisRuntime:
     vision: Optional[VisionEngine] = None
     automation: Optional[AutomationEngine] = None
     email_h: Optional[EmailHandler] = None
+    whatsapp_h: Optional[WhatsAppHandler] = None
+    web_search_e: Optional[WebSearchEngine] = None
+    scheduler_h: Optional[ReminderScheduler] = None
+    doc_reader: Optional[DocumentReader] = None
+    iot_h: Optional[IoTHandler] = None
     code_e: Optional[CodeEngine] = None
     image_gen: Optional[ImageGenerationEngine] = None
 
@@ -112,6 +133,11 @@ class JarvisRuntime:
         self.vision = VisionEngine()
         self.automation = AutomationEngine()
         self.email_h = EmailHandler()
+        self.whatsapp_h = WhatsAppHandler()
+        self.web_search_e = WebSearchEngine()
+        self.scheduler_h = ReminderScheduler()
+        self.doc_reader = DocumentReader()
+        self.iot_h = IoTHandler()
         self.code_e = CodeEngine()
 
         try:
@@ -284,4 +310,86 @@ class JarvisRuntime:
             schema_cls=BrowsePageInput,
             risk="medium",
             permission_category=ActionCategory.BROWSE_URL
+        )
+
+        # ── Legacy & Parity Restored Tools ─────────────────────────
+        reg.register(
+            name="send_email",
+            description="Send an email to a recipient address",
+            func=lambda to, subject, body: self.email_h.send(to=to, subject=subject, body=body) if self.email_h else False,
+            schema_cls=SendEmailInput,
+            risk="high",
+            permission_category="send_email"
+        )
+
+        reg.register(
+            name="read_email",
+            description="Read recent emails from the user's inbox",
+            func=lambda count=5: self.email_h.read_inbox(count=count) if self.email_h else "Email handler not available",
+            schema_cls=ReadEmailInput,
+            risk="low",
+            permission_category="read_file"
+        )
+
+        reg.register(
+            name="send_whatsapp",
+            description="Send a message to a WhatsApp phone number",
+            func=lambda phone_number, message: self.whatsapp_h.send(phone_number=phone_number, message=message) if self.whatsapp_h else False,
+            schema_cls=SendWhatsAppInput,
+            risk="high",
+            permission_category="send_whatsapp"
+        )
+
+        reg.register(
+            name="web_search",
+            description="Perform a live web search and return structured answers",
+            func=lambda query: self.web_search_e.search_and_answer(query) if self.web_search_e else "Web search not available",
+            schema_cls=WebSearchInput,
+            risk="low",
+            permission_category="search_web"
+        )
+
+        reg.register(
+            name="get_weather",
+            description="Get current weather information for a specified location",
+            func=lambda location="": get_weather(location=location),
+            schema_cls=WeatherInput,
+            risk="low",
+            permission_category="answer_question"
+        )
+
+        reg.register(
+            name="get_news",
+            description="Retrieve top current news headlines",
+            func=lambda count=5: get_news(count=count),
+            schema_cls=NewsInput,
+            risk="low",
+            permission_category="answer_question"
+        )
+
+        reg.register(
+            name="set_reminder",
+            description="Schedule a reminder task for a given time",
+            func=lambda time_str, task: self.scheduler_h.add_reminder(time_str=time_str, task=task) if self.scheduler_h else "Scheduler not available",
+            schema_cls=SetReminderInput,
+            risk="low",
+            permission_category="answer_question"
+        )
+
+        reg.register(
+            name="read_document",
+            description="Read and extract text content from a PDF, DOCX, or text file",
+            func=lambda file_path: self.doc_reader.read(file_path) if self.doc_reader else "Document reader not available",
+            schema_cls=ReadDocumentInput,
+            risk="low",
+            permission_category="read_file"
+        )
+
+        reg.register(
+            name="smart_home_control",
+            description="Control a smart home device or perform an IoT action",
+            func=lambda device, action: self.iot_h.control_device(device=device, action=action) if self.iot_h else "IoT handler not available",
+            schema_cls=SmartHomeControlInput,
+            risk="medium",
+            permission_category="modify_system_settings"
         )

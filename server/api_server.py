@@ -783,11 +783,12 @@ async def system_status(rt: JarvisRuntime = Depends(get_runtime)):
     sessions = rt.session_db.list_sessions()
     total_messages = sum(s.get("message_count", 0) for s in sessions)
 
+    system_drive = os.environ.get("SystemDrive", "C:") + "\\"
     return {
         "cpu_percent": psutil.cpu_percent(),
         "ram_percent": psutil.virtual_memory().percent,
         "gpu_vram_percent": gpu_pct,
-        "disk_percent": psutil.disk_usage("D:\\").percent,
+        "disk_percent": psutil.disk_usage(system_drive).percent,
         "jarvis_state": "idle",
         "uptime": f"{int(time.time() - START_TIME)}s",
         "session_count": len(sessions),
