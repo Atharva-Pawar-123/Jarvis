@@ -4,6 +4,7 @@ import TitleBar from './components/TitleBar'
 import ChatView from './components/ChatView'
 import VoiceView from './components/VoiceView'
 import ImageGenView from './components/ImageGenView'
+import TaskView from './components/TaskView'
 import HUDView from './components/HUDView'
 import MemoryView from './components/MemoryView'
 import SettingsView from './components/SettingsView'
@@ -53,6 +54,7 @@ export default function App() {
           {activeTab === 'chat' && <ChatView />}
           {activeTab === 'voice' && <VoiceView />}
           {activeTab === 'imagegen' && <ImageGenView />}
+          {activeTab === 'tasks' && <TaskView />}
           {activeTab === 'hud' && <HUDView />}
           {activeTab === 'memory' && <MemoryView />}
           {activeTab === 'settings' && <SettingsView />}
