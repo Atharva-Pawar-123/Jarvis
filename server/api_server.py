@@ -38,6 +38,27 @@ from modules.security.permission_engine import ActionCategory
 
 logger = logging.getLogger(__name__)
 
+# ── Local Token & Authentication Setup ────────────────────────────────
+TOKEN_FILE = config.DATA_DIR / ".jarvis_local_token"
+
+def _get_or_create_local_token() -> str:
+    """Generates or retrieves persistent local authentication token for loopback API."""
+    if TOKEN_FILE.exists():
+        try:
+            tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if tok:
+                return tok
+        except Exception:
+            pass
+    new_token = f"jarvis_{uuid.uuid4().hex}"
+    try:
+        TOKEN_FILE.write_text(new_token, encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Could not persist local token: {e}")
+    return new_token
+
+LOCAL_AUTH_TOKEN = _get_or_create_local_token()
+
 # ── App Setup ──────────────────────────────────────────────────────────
 app = FastAPI(
     title="JARVIS API",
@@ -45,10 +66,21 @@ app = FastAPI(
     description="JARVIS Local AI Backend — Zero Cloud Dependencies"
 )
 
+# CORS Lockdown: restrict strictly to local desktop and frontend origins
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "electron://*",
+    "null"  # Electron local file origins
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -168,6 +200,8 @@ async def health(request: Request):
         "version": "3.1",
         "ollama": ollama_ok,
         "uptime_seconds": int(time.time() - START_TIME),
+        "auth_required": False,
+        "token": LOCAL_AUTH_TOKEN
     }
 
 
