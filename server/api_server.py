@@ -606,11 +606,11 @@ async def delete_procedural_memory(key: str, rt: JarvisRuntime = Depends(get_run
 # ── Image Generation Endpoints ───────────────────────────────────────
 @app.get("/api/image/models")
 async def list_image_models():
-    """List available image generation models explicitly without auto fallback."""
+    """List 100% locally hosted image models from SD WebUI Forge (No cloud / No Pollinations)."""
     models = []
+    local_models_found = []
 
-    # 1. Local Forge Models (Detected or Default Checkpoint)
-    forge_detected = False
+    # 1. Query running Forge instance for loaded checkpoints
     try:
         import requests
         forge_url = getattr(config, "SD_LOCAL_URL", "http://127.0.0.1:7860")
@@ -618,9 +618,10 @@ async def list_image_models():
         if resp.status_code == 200:
             for item in resp.json():
                 title = item.get("title") or item.get("model_name") or "Local Model"
+                local_models_found.append(title)
                 title_lower = title.lower()
-                
-                # Determine model architecture family
+
+                # Determine architecture family
                 if "flux" in title_lower:
                     category = "FLUX"
                     desc = f"Local FLUX model (4-step Schnell / NF4 high fidelity): {item.get('filename', title)}"
@@ -642,7 +643,7 @@ async def list_image_models():
 
                 models.append({
                     "id": f"local:{title}",
-                    "name": f"{title} (Local {category})",
+                    "name": title,
                     "source": "forge",
                     "category": category,
                     "description": desc,
@@ -650,11 +651,30 @@ async def list_image_models():
                     "default_cfg": default_cfg,
                     "default_dim": default_dim,
                 })
-            forge_detected = True
     except Exception:
         pass
 
-    if not forge_detected:
+    # 2. Check disk directly if Forge is still booting up
+    if not models:
+        models_dir = Path(config.BASE_DIR) / "tools" / "forge" / "webui" / "models" / "Stable-diffusion"
+        if models_dir.exists():
+            for f in models_dir.glob("*.safetensors"):
+                title = f.stem
+                title_lower = title.lower()
+                category = "FLUX" if "flux" in title_lower else ("SDXL" if "xl" in title_lower else "SD1.5")
+                models.append({
+                    "id": f"local:{title}",
+                    "name": title,
+                    "source": "forge",
+                    "category": category,
+                    "description": f"Local GPU Checkpoint ({category}) on disk",
+                    "default_steps": 4 if category == "FLUX" else 20,
+                    "default_cfg": 1.0 if category == "FLUX" else 7.0,
+                    "default_dim": 1024 if category in ("FLUX", "SDXL") else 512,
+                })
+
+    # 3. Always include default DreamShaper 8 fallback
+    if not models:
         models.append({
             "id": "local",
             "name": "DreamShaper 8 (Local SD 1.5)",
@@ -665,50 +685,6 @@ async def list_image_models():
             "default_cfg": 7.0,
             "default_dim": 512,
         })
-
-    # 2. Specific Cloud Pollinations AI Models
-    models.extend([
-        {
-            "id": "pollinations:turbo",
-            "name": "Pollinations Turbo (Cloud)",
-            "source": "pollinations",
-            "category": "Cloud",
-            "description": "Fast generation with clean prompt adherence",
-            "default_steps": 20,
-            "default_cfg": 7.0,
-            "default_dim": 512,
-        },
-        {
-            "id": "pollinations:flux",
-            "name": "FLUX.1 Schnell (Cloud)",
-            "source": "pollinations",
-            "category": "Cloud",
-            "description": "State-of-the-art open weights model with exceptional photorealism",
-            "default_steps": 4,
-            "default_cfg": 1.0,
-            "default_dim": 1024,
-        },
-        {
-            "id": "pollinations:flux-realism",
-            "name": "FLUX Realism (Cloud)",
-            "source": "pollinations",
-            "category": "Cloud",
-            "description": "Tuned specifically for realistic lighting, skin textures, and portraits",
-            "default_steps": 4,
-            "default_cfg": 1.0,
-            "default_dim": 1024,
-        },
-        {
-            "id": "pollinations:flux-anime",
-            "name": "FLUX Anime (Cloud)",
-            "source": "pollinations",
-            "category": "Cloud",
-            "description": "Specialized artistic anime and illustration styling",
-            "default_steps": 4,
-            "default_cfg": 1.0,
-            "default_dim": 1024,
-        }
-    ])
 
     return {"models": models}
 
@@ -727,68 +703,45 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
         except Exception:
             working_prompt = req.prompt
 
-    img_bytes = None
-    source = "Unknown"
     model_choice = req.model or "local"
 
     # GPU VRAM Coordination: park Ollama models before local SD Forge generation
-    if model_choice == "local" or model_choice.startswith("local:"):
-        try:
-            await rt.gpu_scheduler.prepare_for_image_gen()
-        except Exception as e:
-            logger.warning(f"GPU scheduler park failed: {e}")
+    try:
+        await rt.gpu_scheduler.prepare_for_image_gen()
+    except Exception as e:
+        logger.warning(f"GPU scheduler park failed: {e}")
 
-        # Extract specific model checkpoint name if present
-        checkpoint_title = None
-        if model_choice.startswith("local:"):
-            checkpoint_title = model_choice[len("local:"):]
+    # Extract specific checkpoint title if present
+    checkpoint_title = None
+    if model_choice.startswith("local:"):
+        checkpoint_title = model_choice[len("local:"):]
 
-        # Smart defaults for FLUX vs standard checkpoints
-        is_flux = (checkpoint_title and "flux" in checkpoint_title.lower()) or "flux" in model_choice.lower()
-        steps = req.steps or (4 if is_flux else 20)
-        cfg = 1.0 if is_flux else 7.0
-        width = req.width or (1024 if is_flux else 512)
-        height = req.height or (1024 if is_flux else 512)
+    is_flux = (checkpoint_title and "flux" in checkpoint_title.lower()) or "flux" in model_choice.lower()
+    steps = req.steps or (4 if is_flux else 20)
+    cfg = 1.0 if is_flux else 7.0
+    width = req.width or (1024 if is_flux else 512)
+    height = req.height or (1024 if is_flux else 512)
 
-        img_bytes = await asyncio.to_thread(
-            rt.image_gen._generate_local,
-            working_prompt,
-            req.negative_prompt or "",
-            steps,
-            width,
-            height,
-            cfg,
-            "Euler" if is_flux else "Euler a",
-            checkpoint_title
-        )
-        if img_bytes:
-            source = f"Local SD ({checkpoint_title or 'Default'})"
-        else:
-            raise HTTPException(503, "Local Stable Diffusion Forge is offline or failed to generate. Please ensure Forge is running on port 7860.")
-
-    elif model_choice.startswith("pollinations") or model_choice == "pollinations":
-        # Extract sub-model if specified (e.g. pollinations:flux -> flux)
-        submodel = "turbo"
-        if ":" in model_choice:
-            submodel = model_choice.split(":", 1)[1]
-        img_bytes, source = await asyncio.to_thread(_generate_pollinations_direct, working_prompt, submodel)
-        if not img_bytes:
-            raise HTTPException(502, f"Pollinations AI ({submodel}) failed to generate the image.")
-
-    else:
-        # Default to local
-        img_bytes = await asyncio.to_thread(
-            rt.image_gen._generate_local,
-            working_prompt,
-            req.negative_prompt or "",
-            req.steps or 20,
-            req.width or 512,
-            req.height or 512
-        )
-        source = "Local SD" if img_bytes else "Unknown"
+    img_bytes = await asyncio.to_thread(
+        rt.image_gen._generate_local,
+        working_prompt,
+        req.negative_prompt or "",
+        steps,
+        width,
+        height,
+        cfg,
+        "Euler" if is_flux else "Euler a",
+        checkpoint_title
+    )
 
     if not img_bytes:
-        raise HTTPException(500, "Image generation failed on selected engine.")
+        raise HTTPException(
+            503,
+            "Local Stable Diffusion Forge engine is currently offline or loading. "
+            "Please ensure Forge is running on port 7860."
+        )
+
+    source = f"Local GPU ({checkpoint_title or 'DreamShaper 8'})"
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"gen_{timestamp}.png"

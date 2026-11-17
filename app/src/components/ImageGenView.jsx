@@ -99,11 +99,7 @@ export default function ImageGenView() {
       }
     } catch {
       const fallbackList = [
-        { id: 'local', name: 'DreamShaper 8', source: 'forge', category: 'SD1.5', description: 'Local SD Forge — High speed on NVIDIA RTX GPU', default_steps: 20, default_dim: 512 },
-        { id: 'pollinations:flux', name: 'FLUX.1 Schnell', source: 'pollinations', category: 'FLUX', description: 'Exceptional open-weights photorealism (4 steps)', default_steps: 4, default_dim: 1024 },
-        { id: 'pollinations:flux-realism', name: 'FLUX Realism', source: 'pollinations', category: 'FLUX', description: 'Tuned for realistic skin, portraiture & textures', default_steps: 4, default_dim: 1024 },
-        { id: 'pollinations:flux-anime', name: 'FLUX Anime', source: 'pollinations', category: 'Cloud', description: 'Stylized anime, concept art, and digital illustrations', default_steps: 4, default_dim: 1024 },
-        { id: 'pollinations:turbo', name: 'Pollinations Turbo', source: 'pollinations', category: 'Cloud', description: 'Fast generation with clean prompt adherence', default_steps: 20, default_dim: 512 },
+        { id: 'local:DreamShaper_8_pruned', name: 'DreamShaper 8 (Local SD 1.5)', source: 'forge', category: 'SD1.5', description: 'Local SD Forge — High speed on NVIDIA RTX GPU', default_steps: 20, default_dim: 512 },
       ]
       setAvailableModels(fallbackList)
     }
