@@ -160,6 +160,11 @@ class AutonomousGoalRequest(BaseModel):
     goal: str
     title: Optional[str] = None
 
+class ProceduralPreferenceRequest(BaseModel):
+    key: str
+    category: str
+    preference: str
+
 class ApprovalDecisionRequest(BaseModel):
     request_id: str
     approved: bool
@@ -529,6 +534,58 @@ async def clear_memory(x_confirm: Optional[str] = Header(None), rt: JarvisRuntim
         return {"cleared": True}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ── 4-Tier Memory Endpoints ───────────────────────────────────────────
+@app.get("/api/memory/working")
+async def get_working_memory(session_id: Optional[str] = None, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.four_tier_memory:
+        return {"session_id": session_id or "default", "active_rules": [], "recent_goals": []}
+    return rt.four_tier_memory.get_working_memory_state(session_id=session_id)
+
+
+@app.get("/api/memory/episodic")
+async def get_episodic_memory(limit: int = 15, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.four_tier_memory:
+        return {"episodes": []}
+    episodes = rt.four_tier_memory.get_recent_episodes(limit=limit)
+    return {"episodes": episodes}
+
+
+@app.delete("/api/memory/episodic/{episode_id}")
+async def delete_episodic_memory(episode_id: int, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.four_tier_memory:
+        raise HTTPException(500, "Four-tier memory not active")
+    deleted = rt.four_tier_memory.delete_episode(episode_id)
+    if not deleted:
+        raise HTTPException(404, f"Episode {episode_id} not found")
+    return {"deleted": episode_id}
+
+
+@app.get("/api/memory/procedural")
+async def get_procedural_memory(rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.four_tier_memory:
+        return {"preferences": []}
+    prefs = rt.four_tier_memory.get_all_procedural_preferences()
+    return {"preferences": prefs}
+
+
+@app.post("/api/memory/procedural")
+async def add_procedural_memory(req: ProceduralPreferenceRequest, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.four_tier_memory:
+        raise HTTPException(500, "Four-tier memory not active")
+    rt.four_tier_memory.set_procedural_preference(key=req.key, category=req.category, preference=req.preference)
+    return {"status": "saved", "key": req.key, "preference": req.preference}
+
+
+@app.delete("/api/memory/procedural/{key}")
+async def delete_procedural_memory(key: str, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.four_tier_memory:
+        raise HTTPException(500, "Four-tier memory not active")
+    deleted = rt.four_tier_memory.delete_procedural_preference(key)
+    if not deleted:
+        raise HTTPException(404, f"Procedural key '{key}' not found")
+    return {"deleted": key}
 
 
 # ── Image Generation Endpoints ───────────────────────────────────────
