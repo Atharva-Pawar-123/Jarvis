@@ -111,10 +111,17 @@ class UnifiedAgentOrchestrator:
 
             logger.info(f"Agent Loop iteration {step + 1}/{self.max_steps}")
 
-            # Notify UI
+            # Emit structured event: planning
             if step_callback:
                 try:
-                    cb_res = step_callback(f"Thinking (step {step+1})...")
+                    event_payload = {
+                        "type": "agent_event",
+                        "event_type": "planning",
+                        "step_number": step + 1,
+                        "max_steps": self.max_steps,
+                        "description": f"Analyzing task context and decomposing next action (step {step+1}/{self.max_steps})..."
+                    }
+                    cb_res = step_callback(event_payload)
                     if asyncio.iscoroutine(cb_res):
                         await cb_res
                 except Exception:
@@ -128,6 +135,17 @@ class UnifiedAgentOrchestrator:
 
             # If not tool action, treat as direct answer
             if not action_data:
+                if step_callback:
+                    try:
+                        cb_res = step_callback({
+                            "type": "agent_event",
+                            "event_type": "final_deliverable",
+                            "description": "Synthesized direct answer without tool calls."
+                        })
+                        if asyncio.iscoroutine(cb_res):
+                            await cb_res
+                    except Exception:
+                        pass
                 return response_clean
 
             thought = action_data.get("thought", "")
@@ -137,6 +155,18 @@ class UnifiedAgentOrchestrator:
 
             if action == "FINAL_ANSWER" or final_answer:
                 res_ans = final_answer or thought
+                if step_callback:
+                    try:
+                        cb_res = step_callback({
+                            "type": "agent_event",
+                            "event_type": "final_deliverable",
+                            "description": "Task plan fulfilled. Presenting final deliverable."
+                        })
+                        if asyncio.iscoroutine(cb_res):
+                            await cb_res
+                    except Exception:
+                        pass
+
                 # Automatically log completed episode into Episodic Memory
                 if self.four_tier_memory:
                     try:
@@ -163,12 +193,40 @@ class UnifiedAgentOrchestrator:
                 continue
             executed_actions.add(action_key)
 
+            # Emit structured event: tool_selected
+            if step_callback:
+                try:
+                    cb_res = step_callback({
+                        "type": "agent_event",
+                        "event_type": "tool_selected",
+                        "tool": action,
+                        "tool_input": action_input,
+                        "thought": thought,
+                        "description": f"Selected tool '{action}' based on reasoning: {thought[:80]}..." if thought else f"Selected tool '{action}'"
+                    })
+                    if asyncio.iscoroutine(cb_res):
+                        await cb_res
+                except Exception:
+                    pass
+
             # Security Permission Gate with session context
             authorized, reason = await self.permission_engine.verify_and_authorize(
                 action, action_input, session_id=session_id
             )
             if not authorized:
                 observation = f"Permission Denied: {reason}"
+                if step_callback:
+                    try:
+                        cb_res = step_callback({
+                            "type": "agent_event",
+                            "event_type": "approval_required",
+                            "tool": action,
+                            "description": f"Permission denied for '{action}': {reason}"
+                        })
+                        if asyncio.iscoroutine(cb_res):
+                            await cb_res
+                    except Exception:
+                        pass
             else:
                 if cancellation_token and cancellation_token.is_set():
                     logger.info("Orchestrator aborted prior to tool invocation: cancellation token set.")
@@ -176,18 +234,55 @@ class UnifiedAgentOrchestrator:
 
                 if step_callback:
                     try:
-                        cb_res = step_callback(f"Executing tool: {action}...")
+                        cb_res = step_callback({
+                            "type": "agent_event",
+                            "event_type": "tool_executing",
+                            "tool": action,
+                            "tool_input": action_input,
+                            "description": f"Executing tool '{action}' with parameters..."
+                        })
                         if asyncio.iscoroutine(cb_res):
                             await cb_res
                     except Exception:
                         pass
 
                 # Execute tool via registry
+                exec_start = asyncio.get_event_loop().time()
                 exec_res: ToolExecutionResult = await asyncio.to_thread(self.tools.execute, action, action_input)
+                exec_duration_ms = int((asyncio.get_event_loop().time() - exec_start) * 1000)
+
                 if exec_res.success:
                     observation = exec_res.result
+                    if step_callback:
+                        try:
+                            cb_res = step_callback({
+                                "type": "agent_event",
+                                "event_type": "tool_completed",
+                                "tool": action,
+                                "duration_ms": exec_duration_ms,
+                                "observation_snippet": str(observation)[:120],
+                                "description": f"Tool '{action}' completed successfully in {exec_duration_ms}ms"
+                            })
+                            if asyncio.iscoroutine(cb_res):
+                                await cb_res
+                        except Exception:
+                            pass
                 else:
                     observation = f"Tool Execution Failed: {exec_res.error}"
+                    if step_callback:
+                        try:
+                            cb_res = step_callback({
+                                "type": "agent_event",
+                                "event_type": "tool_completed",
+                                "tool": action,
+                                "duration_ms": exec_duration_ms,
+                                "error": exec_res.error,
+                                "description": f"Tool '{action}' failed: {exec_res.error}"
+                            })
+                            if asyncio.iscoroutine(cb_res):
+                                await cb_res
+                        except Exception:
+                            pass
 
             # Append assistant message and observation
             messages.append({"role": "assistant", "content": response_clean})

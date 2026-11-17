@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, Mic, Square, CornerDownLeft, ChevronDown, ChevronRight, Cpu, ShieldAlert, Check, X } from 'lucide-react'
+import { Send, Mic, Square, CornerDownLeft, ChevronDown, ChevronRight, Cpu, ShieldAlert, Check, X, Wrench, CheckCircle2, AlertCircle, Compass } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -155,12 +155,12 @@ export default function ChatView() {
           </div>
         )}
 
-        {/* Live Agent Reasoning Steps Accordion */}
+        {/* Live Agent Activity Timeline */}
         {jarvisState === 'thinking' && agentSteps && agentSteps.length > 0 && (
           <div className="max-w-xl my-2 animate-fade-in">
             <div 
               onClick={() => setShowThinking(!showThinking)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-xs font-mono select-none"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl cursor-pointer text-xs font-mono select-none"
               style={{
                 background: 'var(--bg-secondary)',
                 border: '1px solid var(--border)',
@@ -168,7 +168,7 @@ export default function ChatView() {
               }}
             >
               <Cpu size={14} className="animate-spin" />
-              <span>Thinking & Reasoning ({agentSteps.length} steps)</span>
+              <span className="font-semibold tracking-wide">Agent Activity Timeline ({agentSteps.length} events)</span>
               <div className="ml-auto">
                 {showThinking ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </div>
@@ -176,19 +176,57 @@ export default function ChatView() {
 
             {showThinking && (
               <div 
-                className="mt-1 p-3 rounded-lg text-xs font-mono space-y-1.5"
+                className="mt-2 p-3.5 rounded-xl text-xs font-mono space-y-2.5"
                 style={{
                   background: 'var(--bg-tertiary)',
                   border: '1px solid var(--border)',
-                  color: 'var(--text-secondary)'
                 }}
               >
-                {agentSteps.map((step, idx) => (
-                  <div key={idx} className="flex items-start gap-2">
-                    <span style={{ color: 'var(--accent)' }}>▶</span>
-                    <span>{step}</span>
-                  </div>
-                ))}
+                {agentSteps.map((step, idx) => {
+                  const isObj = typeof step === 'object' && step !== null
+                  const eventType = isObj ? step.event_type : 'legacy'
+                  const desc = isObj ? step.description : String(step)
+
+                  let IconComp = Cpu
+                  let iconColor = 'var(--accent)'
+                  if (eventType === 'planning') {
+                    IconComp = Compass
+                    iconColor = 'var(--accent)'
+                  } else if (eventType === 'tool_selected') {
+                    IconComp = Wrench
+                    iconColor = 'var(--cyan)'
+                  } else if (eventType === 'tool_executing') {
+                    IconComp = Cpu
+                    iconColor = 'var(--amber)'
+                  } else if (eventType === 'tool_completed') {
+                    IconComp = CheckCircle2
+                    iconColor = 'var(--green, #22c55e)'
+                  } else if (eventType === 'approval_required') {
+                    IconComp = ShieldAlert
+                    iconColor = 'var(--red, #ef4444)'
+                  } else if (eventType === 'final_deliverable') {
+                    IconComp = CheckCircle2
+                    iconColor = 'var(--accent)'
+                  }
+
+                  return (
+                    <div key={idx} className="flex items-start gap-2.5">
+                      <div className="mt-0.5 p-1 rounded bg-black/40" style={{ color: iconColor }}>
+                        <IconComp size={12} />
+                      </div>
+                      <div className="flex-1 space-y-0.5">
+                        <div className="leading-snug" style={{ color: 'var(--text-primary)' }}>
+                          {desc}
+                        </div>
+                        {isObj && step.tool_input && Object.keys(step.tool_input).length > 0 && (
+                          <div className="p-1.5 rounded bg-black/20 text-[11px] text-gray-400 overflow-x-auto">
+                            {JSON.stringify(step.tool_input)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
