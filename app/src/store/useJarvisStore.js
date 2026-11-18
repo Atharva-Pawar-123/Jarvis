@@ -18,6 +18,7 @@ const useJarvisStore = create((set, get) => ({
   // ── JARVIS State ──────────────────────────────────────────────
   jarvisState: 'idle', // idle | listening | thinking | speaking | muted
   isConnected: false,
+  isBackendOnline: false,
   isMuted: false,
 
   // ── Theme / Mode ──────────────────────────────────────────────
@@ -41,6 +42,7 @@ const useJarvisStore = create((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setJarvisState: (state) => set({ jarvisState: state }),
   setConnected: (v) => set({ isConnected: v }),
+  setBackendOnline: (v) => set({ isBackendOnline: v }),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   // ── Theme / Mode ──────────────────────────────────────────────
@@ -59,10 +61,12 @@ const useJarvisStore = create((set, get) => ({
   fetchSessions: async () => {
     try {
       const res = await fetch(`${API_BASE}/api/sessions`)
+      if (!res.ok) return
       const data = await res.json()
-      set({ sessions: data })
+      set({ sessions: data, isBackendOnline: true })
     } catch {
-      console.error('Failed to fetch sessions')
+      // Backend offline — silently ignore
+      set({ isBackendOnline: false })
     }
   },
 
@@ -73,6 +77,7 @@ const useJarvisStore = create((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'New conversation' }),
       })
+      if (!res.ok) return null
       const data = await res.json()
       set((s) => ({
         sessions: [
@@ -87,10 +92,12 @@ const useJarvisStore = create((set, get) => ({
         ],
         activeSessionId: data.session_id,
         messages: [],
+        isBackendOnline: true,
       }))
       return data.session_id
     } catch {
-      console.error('Failed to create session')
+      // Backend offline — silently ignore
+      set({ isBackendOnline: false })
       return null
     }
   },
@@ -98,13 +105,14 @@ const useJarvisStore = create((set, get) => ({
   loadSession: async (sessionId) => {
     try {
       const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`)
+      if (!res.ok) return
       const data = await res.json()
       set({
         activeSessionId: sessionId,
         messages: data.messages || [],
       })
     } catch {
-      console.error('Failed to load session')
+      // Backend offline — silently ignore
     }
   },
 
@@ -121,7 +129,7 @@ const useJarvisStore = create((set, get) => ({
           : {}),
       })
     } catch {
-      console.error('Failed to delete session')
+      // Backend offline — silently ignore
     }
   },
 

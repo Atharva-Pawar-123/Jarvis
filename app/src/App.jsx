@@ -26,23 +26,43 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    // Retry fetching sessions with retry interval if backend is still spinning up
+    // Smart backend discovery: ping health endpoint with backoff before initializing sessions
+    let cancelled = false
     const initApp = async () => {
+      let backoffMs = 1500
+      const MAX_BACKOFF = 15000
       let retries = 10
-      while (retries > 0) {
+
+      // Phase 1: Wait for backend to respond
+      while (retries > 0 && !cancelled) {
         try {
-          await fetchSessions()
-          if (!useJarvisStore.getState().activeSessionId) {
-            await createSession()
-          }
-          break
-        } catch (e) {
-          retries--
-          await new Promise((r) => setTimeout(r, 1500))
+          const ctrl = new AbortController()
+          const id = setTimeout(() => ctrl.abort(), 2000)
+          const res = await fetch('http://localhost:8080/api/system/status', { signal: ctrl.signal })
+          clearTimeout(id)
+          if (res.ok) break // Backend is online
+        } catch {
+          // Silently wait — no console spam
         }
+        retries--
+        if (retries > 0) await new Promise((r) => setTimeout(r, backoffMs))
+        backoffMs = Math.min(backoffMs * 1.5, MAX_BACKOFF)
+      }
+
+      if (cancelled || retries <= 0) return
+
+      // Phase 2: Backend is online — initialize sessions
+      try {
+        await fetchSessions()
+        if (!useJarvisStore.getState().activeSessionId) {
+          await createSession()
+        }
+      } catch {
+        // Session init failed — will retry on next user interaction
       }
     }
     initApp()
+    return () => { cancelled = true }
   }, [])
 
   return (

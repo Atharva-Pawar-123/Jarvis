@@ -52,13 +52,46 @@ export default function CommandCenter() {
     return () => clearInterval(timer)
   }, [])
 
-  // Telemetry fetcher
+  // Telemetry fetcher with smart backoff when backend is offline
   useEffect(() => {
+    let alive = true
+    let backendOnline = false
+    let backoffMs = 3000
+    const MAX_BACKOFF = 30000
+    let timer = null
+
+    const ping = async () => {
+      try {
+        const ctrl = new AbortController()
+        const id = setTimeout(() => ctrl.abort(), 2000)
+        await fetch('http://localhost:8080/api/system/status', { signal: ctrl.signal })
+        clearTimeout(id)
+        return true
+      } catch {
+        return false
+      }
+    }
+
     const fetchTelemetry = async () => {
+      if (!alive) return
+
+      // If backend was offline, do a lightweight health ping first
+      if (!backendOnline) {
+        backendOnline = await ping()
+        if (!backendOnline) {
+          // Still offline — increase backoff, schedule next check silently
+          backoffMs = Math.min(backoffMs * 1.5, MAX_BACKOFF)
+          timer = setTimeout(fetchTelemetry, backoffMs)
+          return
+        }
+        // Backend just came online — reset to fast polling
+        backoffMs = 3000
+      }
+
       try {
         const [sysRes, gpuRes] = await Promise.all([
-          axios.get('http://localhost:8080/api/system/status').catch(() => ({ data: {} })),
-          axios.get('http://localhost:8080/api/gpu/telemetry').catch(() => ({ data: {} }))
+          axios.get('http://localhost:8080/api/system/status'),
+          axios.get('http://localhost:8080/api/gpu/telemetry')
         ])
         if (sysRes.data.cpu_percent !== undefined) {
           setTelemetry(prev => ({
@@ -73,13 +106,18 @@ export default function CommandCenter() {
             active_consumer: gpuRes.data.active_consumer || 'llm'
           }))
         }
-      } catch (e) {
-        // Fallback default telemetry
+        backoffMs = 3000
+      } catch {
+        // Backend went offline mid-poll — switch to backoff mode
+        backendOnline = false
+        backoffMs = 5000
       }
+
+      if (alive) timer = setTimeout(fetchTelemetry, backoffMs)
     }
+
     fetchTelemetry()
-    const interval = setInterval(fetchTelemetry, 3000)
-    return () => clearInterval(interval)
+    return () => { alive = false; clearTimeout(timer) }
   }, [])
 
   // Format date and time
