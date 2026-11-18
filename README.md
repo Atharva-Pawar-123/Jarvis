@@ -67,40 +67,51 @@ With the completion of the **V2.3 Reliability, Security & Next-Gen Command Cente
 
 ---
 
-## 🖥️ Modern Desktop Application (ChatGPT / Grok / Claude Experience)
+## 🖥️ Modern Desktop Application (Futuristic Command Center HUD Experience)
 
 The desktop app in `app/` is a unified Electron + React client:
 
-1. **💬 Chat View (Default AI Chat)**:
+1. **🌌 Command Center HUD (Default Landing Dashboard)**:
+   - Central rotating 3D holographic wireframe orb with particle nebula and `JARVIS AI CORE v3.0.0` typography.
+   - Top status header with live digital clock, date, glowing `SYSTEM STATUS: OPTIMAL` badge, search console, and Operator Commander card.
+   - AI Core Overview with live states for Core, Memory, Voice, Agents, LLMs, and System.
+   - Live Intelligence Feed prioritizing alerts with severity color coding (`INFO`, `WARN`, `TIP`, `LIVE`).
+   - Active Agents matrix with live animated sparkline waveforms for Coding, Research, Memory, Browser, Task, and System agents.
+   - Mission Timeline with scheduled daily events, completion status, and quick command buttons.
+   - Real-time hardware telemetry circular SVG dials for CPU, RAM, and Disk.
+   - Constellation Memory Insights displaying memory volume, session turn counts, and tool invocations.
+   - Multi-provider LLM status grid and glowing bottom **`TALK TO JARVIS`** action dock with Executive Briefing.
+
+2. **💬 Chat View**:
    - Type messages directly to JARVIS and receive token-by-token streaming responses.
    - Formatted with Markdown, code highlighting, copy buttons, and multi-session conversation history.
    - Live collapsible **"Thinking & Reasoning"** status indicator displaying step-by-step agent planning.
    - Interactive amber **Security Authorization Card** for one-click human-in-the-loop approvals.
    - Optional microphone dictation directly in the chat bar.
 
-2. **🎙️ Voice Chat View**:
+3. **🎙️ Voice Chat View**:
    - Dedicated voice conversation screen featuring the pulsating JARVIS Arc Reactor Orb.
    - Push-to-talk button (`Tap to speak` / `Tap to stop`).
    - Real-time audio waveform visualizer and full transcript display.
    - Toggle voice speech responses (Mute/Unmute TTS).
 
-3. **🎨 Image Gen Studio**:
+4. **🎨 Image Gen Studio**:
    - Model selector: choose explicitly between local models: **DreamShaper 8 (SD 1.5)**, **Realistic Vision V5.1 (SD 1.5 Photorealistic)**, or **FLUX.1 Schnell** — no automatic fallbacks, direct user control.
    - Prompt input supporting text typing (default) or voice dictation via microphone.
    - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 1024×1024).
    - Gallery strip with full-resolution preview, prompt reuse, and direct PNG download.
 
-4. **📊 HUD Dashboard**:
+5. **📊 HUD Dashboard**:
    - Live circular telemetry meters for CPU load, RAM usage, GPU VRAM allocation, and core temperatures.
    - Status indicators showing active VRAM consumers (`llm` vs `forge`), uptime, and active sessions.
 
-5. **📋 Task Command Center**:
-   - Background autonomous goal launcher with subtask estimation.
+6. **📋 Task Command Center**:
+   - Background autonomous goal launcher with subtask estimation and DAG graph tracking.
    - Real-time task status pills (`QUEUED`, `RUNNING`, `COMPLETED`, `CANCELLED`, `INTERRUPTED`).
    - Live progress bars and instant task cancellation buttons.
 
-6. **🧠 4-Tier Memory Inspector**:
-   - **Working Memory**: Active session cache and short-term dialogue buffer.
+7. **🧠 4-Tier Memory Inspector**:
+   - **Working Memory**: Active session cache, current constraints, and past episode retrieval.
    - **Episodic Memory**: Chronological action timeline and interaction history.
    - **Semantic Memory**: Knowledge base search, interactive fact insertion, and memory deletion.
    - **Procedural Memory**: Learned habits, automated execution patterns, and routines.
