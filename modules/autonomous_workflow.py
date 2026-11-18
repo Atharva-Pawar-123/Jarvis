@@ -1,24 +1,34 @@
 """
 modules/autonomous_workflow.py — High-Level Autonomous Goal Execution for JARVIS
 ===============================================================================
-Enables true goal-driven autonomy (e.g. "Research AI tools and prepare a report",
-"Organize my week", "Build an expense tracker"):
-- Goal decomposition into dynamic subtask DAGs with dependency tracking
+Enables true goal-driven autonomy with:
+- Dynamic DAG subtask graph decomposition with dependency awareness
+- Concurrent dispatch of independent graph nodes via asyncio
 - Resumable checkpoint persistence via PersistentTaskManager
 - Live cancellation token propagation to orchestrator & tools
-- Synthesizes findings into structured Markdown reports
+- Synthesizes findings into structured Markdown deliverables
 """
 
 import json
 import logging
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from modules.agent.orchestrator import UnifiedAgentOrchestrator
 from modules.tasks.task_manager import PersistentTaskManager, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DAGNode:
+    id: str
+    description: str
+    dependencies: List[str] = field(default_factory=list)
+    status: str = "pending"  # pending, running, completed, failed
+    output: Optional[str] = None
 
 
 class AutonomousWorkflowEngine:
@@ -55,8 +65,8 @@ class AutonomousWorkflowEngine:
         return True
 
     async def _run_goal_pipeline(self, task_id: str, goal: str, is_resumed: bool = False):
-        """Pipeline executing decomposed subtasks with live cancellation and resumption."""
-        logger.info(f"Starting pipeline execution for task {task_id} (resumed={is_resumed}): {goal}")
+        """Pipeline executing decomposed subtasks via dependency-aware DAG."""
+        logger.info(f"Starting DAG pipeline execution for task {task_id} (resumed={is_resumed}): {goal}")
         cancel_token = self.task_manager.get_cancellation_token(task_id)
 
         try:
@@ -71,78 +81,109 @@ class AutonomousWorkflowEngine:
                 except Exception:
                     checkpoint = {}
 
-            # Plan or retrieve existing plan
-            steps = checkpoint.get("plan", [])
+            # Plan or retrieve existing DAG
+            raw_nodes = checkpoint.get("dag_nodes", [])
             step_outputs = checkpoint.get("step_outputs", {})
 
-            if not steps:
+            if not raw_nodes:
                 self.task_manager.update_progress(
                     task_id=task_id,
-                    step_desc="Decomposing goal into actionable plan",
+                    step_desc="Decomposing goal into dependency DAG",
                     steps_completed=1,
-                    total_steps=5,
-                    checkpoint={"plan": [], "step_outputs": {}}
+                    total_steps=6,
+                    checkpoint={"dag_nodes": [], "step_outputs": {}}
                 )
 
                 plan_prompt = (
-                    f"Break this goal into 3 sequential executable subtasks: {goal}\n"
-                    "Format as a JSON array of 3 strings: [\"step 1\", \"step 2\", \"step 3\"]."
+                    f"Break this goal into 3 structured subtasks with dependencies: {goal}\n"
+                    "Output a JSON list of objects: [{\"id\": \"task1\", \"desc\": \"...\", \"deps\": []}, "
+                    "{\"id\": \"task2\", \"desc\": \"...\", \"deps\": [\"task1\"]}, "
+                    "{\"id\": \"task3\", \"desc\": \"...\", \"deps\": [\"task2\"]}]"
                 )
                 raw_plan = await asyncio.to_thread(self.orchestrator.llm.generate, [{"role": "user", "content": plan_prompt}], False)
 
-                steps = ["Initial research and inspection", "Execution and data compilation", "Final synthesis"]
+                raw_nodes = [
+                    {"id": "step_1", "desc": "Initial research and inspection", "deps": []},
+                    {"id": "step_2", "desc": "Execution and data compilation", "deps": ["step_1"]},
+                    {"id": "step_3", "desc": "Final analysis and draft", "deps": ["step_2"]},
+                ]
                 try:
                     import re
                     match = re.search(r'\[.*\]', raw_plan, re.DOTALL)
                     if match:
                         parsed = json.loads(match.group(0))
                         if isinstance(parsed, list) and len(parsed) >= 1:
-                            steps = parsed[:3]
+                            raw_nodes = []
+                            for idx, item in enumerate(parsed[:4]):
+                                nid = item.get("id") or f"step_{idx+1}"
+                                ndesc = item.get("desc") or item.get("description") or str(item)
+                                ndeps = item.get("deps") or item.get("dependencies") or []
+                                raw_nodes.append({"id": nid, "desc": ndesc, "deps": ndeps})
                 except Exception:
                     pass
 
-            if self.task_manager.is_cancelled(task_id):
-                return
+            # Construct nodes
+            nodes: Dict[str, DAGNode] = {}
+            for item in raw_nodes:
+                nid = item["id"]
+                node = DAGNode(
+                    id=nid,
+                    description=item["desc"],
+                    dependencies=item.get("deps", [])
+                )
+                if nid in step_outputs:
+                    node.status = "completed"
+                    node.output = step_outputs[nid]
+                nodes[nid] = node
 
-            # Execute subtasks sequentially or pick up from where left off
-            total_steps = len(steps) + 2  # Plan + Subtasks + Synthesis
+            total_steps = len(nodes) + 2
+            completed_count = sum(1 for n in nodes.values() if n.status == "completed")
 
-            for i, step_desc in enumerate(steps):
-                step_key = f"step_{i+1}"
-                if step_key in step_outputs and step_outputs[step_key]:
-                    logger.info(f"Task {task_id}: {step_key} already completed in checkpoint. Skipping.")
-                    continue
-
+            # Topological execution loop
+            while any(n.status in ("pending", "running") for n in nodes.values()):
                 if self.task_manager.is_cancelled(task_id):
                     return
 
-                self.task_manager.update_progress(
-                    task_id=task_id,
-                    step_desc=f"Executing: {step_desc}",
-                    steps_completed=i + 2,
-                    total_steps=total_steps,
-                    checkpoint={"plan": steps, "step_outputs": step_outputs}
-                )
+                # Find all ready nodes
+                ready_nodes = [
+                    n for n in nodes.values()
+                    if n.status == "pending" and all(nodes[dep].status == "completed" for dep in n.dependencies if dep in nodes)
+                ]
 
-                # Build context from previous step outputs
-                context_str = "\n".join([f"{k}: {v[:300]}" for k, v in step_outputs.items()])
-                query = f"Autonomous Goal: {goal}.\n{context_str}\n\nExecute current subtask: {step_desc}"
+                if not ready_nodes and any(n.status == "pending" for n in nodes.values()):
+                    # Deadlock prevention: unlock first pending node
+                    first_pending = next(n for n in nodes.values() if n.status == "pending")
+                    ready_nodes = [first_pending]
 
-                output = await self.orchestrator.execute_task(
-                    query=query,
-                    conversation_history=[],
-                    cancellation_token=cancel_token
-                )
+                for n in ready_nodes:
+                    n.status = "running"
 
-                if self.task_manager.is_cancelled(task_id):
-                    return
+                # Helper to execute single node
+                async def _exec_node(node: DAGNode):
+                    if self.task_manager.is_cancelled(task_id):
+                        return
+                    dep_contexts = "\n".join([f"[{dep}]: {nodes[dep].output[:300]}" for dep in node.dependencies if dep in nodes and nodes[dep].output])
+                    query = f"Autonomous Goal: {goal}\nDependencies Context:\n{dep_contexts}\n\nExecute task node: {node.description}"
+                    out = await self.orchestrator.execute_task(
+                        query=query,
+                        conversation_history=[],
+                        cancellation_token=cancel_token
+                    )
+                    node.output = out
+                    node.status = "completed"
+                    step_outputs[node.id] = out
 
-                step_outputs[step_key] = output
+                # Execute ready nodes concurrently
+                await asyncio.gather(*[_exec_node(n) for n in ready_nodes])
+
+                completed_count = sum(1 for n in nodes.values() if n.status == "completed")
+                checkpoint["dag_nodes"] = raw_nodes
                 checkpoint["step_outputs"] = step_outputs
+
                 self.task_manager.update_progress(
                     task_id=task_id,
-                    step_desc=f"Completed: {step_desc}",
-                    steps_completed=i + 2,
+                    step_desc=f"Completed {completed_count}/{len(nodes)} graph tasks",
+                    steps_completed=completed_count + 1,
                     total_steps=total_steps,
                     checkpoint=checkpoint
                 )
@@ -162,7 +203,7 @@ class AutonomousWorkflowEngine:
             all_results = "\n\n".join([f"{k.upper()}:\n{v}" for k, v in step_outputs.items()])
             final_prompt = (
                 f"Synthesize the final deliverable for the user's goal: '{goal}'.\n\n"
-                f"Findings & Results from all steps:\n{all_results}\n\n"
+                f"Findings & Results from all DAG steps:\n{all_results}\n\n"
                 "Provide a complete, structured summary with deliverables in British JARVIS tone."
             )
             final_deliverable = await asyncio.to_thread(

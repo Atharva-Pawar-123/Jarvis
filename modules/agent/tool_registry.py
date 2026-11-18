@@ -257,11 +257,36 @@ class StructuredToolRegistry:
                 else:
                     return func(clean_args)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # Use non-waiting executor to avoid blocking on hung worker threads
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
                 future = executor.submit(_invoke)
                 res = future.result(timeout=timeout)
+            finally:
+                # Do not wait for stalled worker thread to prevent freezing the orchestrator
+                executor.shutdown(wait=False, cancel_futures=True)
 
             elapsed = int((time.time() - start_t) * 1000)
+
+            # Contract verification: False, None, or dict with explicit error key indicates failure
+            is_failure = False
+            err_msg = None
+            if res is False:
+                is_failure = True
+                err_msg = "Tool returned False."
+            elif isinstance(res, dict) and "error" in res:
+                is_failure = True
+                err_msg = res.get("error")
+
+            if is_failure:
+                return ToolExecutionResult(
+                    tool_name=name,
+                    success=False,
+                    result=str(res) if res is not False else "",
+                    error=str(err_msg),
+                    execution_time_ms=elapsed
+                )
+
             return ToolExecutionResult(
                 tool_name=name,
                 success=True,

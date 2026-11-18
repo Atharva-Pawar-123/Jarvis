@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V2.3)
 
 ---
 
@@ -7,15 +7,15 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the completion of the **V2.1 Reliability & Production Hardening Sprint**, JARVIS has evolved from a reactive desktop helper into an enterprise-grade, self-correcting desktop intelligence system:
+With the completion of the **V2.3 Reliability, Security & Next-Gen Command Center Sprint**, JARVIS delivers an enterprise-grade, self-correcting desktop intelligence platform:
 - **Unified Runtime Container (`JarvisRuntime`)**: Single-source-of-truth application container holding all module singletons, eliminating fragmented module-level globals across FastAPI and the voice daemon.
-- **Canonical Tool Protocol & Strict Schemas**: Strongly-typed Pydantic contracts (`CanonicalTool`) providing exact validation, execution timeouts, and self-documenting JSON schemas for LLM tool calling.
-- **Interactive Security Authorization Gate**: High-risk actions (code execution, email sending, file deletion, system power) trigger real-time amber approval cards in the UI with a 45-second timeout and session memory caching.
-- **Hardened Subprocess Sandbox**: Sanitized subprocess environments stripping cloud and personal API tokens (`GMAIL_*`, `AWS_*`, `HA_*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`) with memory limits and execution deadlines.
-- **Restart-Surviving Task Manager**: Checkpointed state machine in SQLite with live `asyncio.Event` cancellation tokens, dynamic subtask DAG tracking, and automatic recovery of interrupted tasks upon system reboot.
-- **Tactical Desktop HUD & Task Center**: Real-time circular telemetry dials (CPU, RAM, GPU VRAM & temp), an interactive background task launcher with live progress bars, and a 4-tier cognitive memory inspector (Working, Episodic, Semantic, Procedural).
-- **Hardware-Aware GPU Scheduler**: Manages mutually exclusive execution between Qwen LLM reasoning and Stable Diffusion Forge image generation to eliminate CUDA Out-of-Memory crashes on 6GB VRAM GPUs.
-- **Automated Regression Test Suite**: 61 comprehensive pytest tests covering orchestrator reasoning loops, security policies, sandbox isolation, background tasks, and GPU scheduling.
+- **Canonical Tool Protocol & Strict Schemas**: Strongly-typed Pydantic contracts (`CanonicalTool`) providing exact validation, execution timeouts with non-blocking thread shutdown, and self-documenting JSON schemas for LLM tool calling.
+- **Interactive Security Authorization Gate**: High-risk actions (code execution, email sending, file deletion, system power) require session-bound cryptographic approval cards with expiration TTL and fresh re-authorizations for sensitive commands.
+- **Hardened Subprocess Sandbox**: Sanitized subprocess environments stripping cloud and personal API tokens with 64-bit aligned Windows Job Object memory caps and strict repository path boundaries.
+- **Restart-Surviving Task DAG Engine**: Checkpointed state machine in SQLite with live `asyncio.Event` cancellation tokens, dynamic subtask DAG tracking with parallel topological execution, and automatic recovery of interrupted tasks upon system reboot.
+- **Next-Gen Command Center HUD**: Futuristic military/sci-fi command dashboard with live clock, central holographic 3D particle orb, agent status matrix, mission timeline, live intelligence feed, hardware gauges, constellation memory insights, and one-click voice dock.
+- **Hardware-Aware GPU Scheduler**: Manages mutually exclusive execution between Qwen LLM reasoning, LLaVA vision, and Stable Diffusion Forge image generation to eliminate CUDA Out-of-Memory crashes on 6GB VRAM GPUs.
+- **100% Offline Diffusion Studio**: Fully local generation powered strictly by SD WebUI Forge with hot-swapping checkpoints (DreamShaper 8, Realistic Vision V5.1, FLUX.1 Schnell) and adaptive parameters. Zero cloud dependencies.
 
 ---
 
@@ -24,12 +24,13 @@ With the completion of the **V2.1 Reliability & Production Hardening Sprint**, J
 ```
 +─────────────────────────────────────────────────────────────────────────────+
 |                         USER INTERFACE & ENTRYPOINTS                        |
-|  - Desktop App: Electron + React 19 + TailwindCSS + Zustand + Framer Motion |
+|  - Desktop App: Electron + React 19 + TailwindCSS + Zustand + Lucide        |
+|    * 🌌 Command Center HUD (Futuristic sci-fi dashboard, orb, mission feeds)|
 |    * 💬 Chat View (ChatGPT/Claude-style streaming & autonomous reasoning)   |
 |    * 🎙️ Voice View (Push-to-talk Arc Reactor Orb, transcript, British TTS)   |
-|    * 🎨 Image Studio (Local Forge SD + Pollinations AI with model selector) |
+|    * 🎨 Image Studio (100% Local Forge SD with dynamic model selector)      |
 |    * 📊 HUD Dashboard (Real-time CPU, RAM, GPU VRAM & system telemetry)     |
-|    * 📋 Task Center (Autonomous goal launcher, progress bars, cancellation) |
+|    * 📋 Task Center (Autonomous DAG launcher, progress bars, cancellation)  |
 |    * 🧠 4-Tier Memory Inspector (Working, Episodic, Semantic RAG, Procedural|
 |    * ⚙️ Settings Configuration (Model selector, TTS switches, API keys)    |
 |  - Voice Daemon: OpenWakeWord ("hey_jarvis") + faster-whisper + Piper TTS   |
@@ -62,7 +63,7 @@ With the completion of the **V2.1 Reliability & Production Hardening Sprint**, J
 - **Hybrid Memory (`nomic-embed-text` + ChromaDB + BM25)**: Vector embeddings + lexical keywords fused via Reciprocal Rank Fusion (RRF).
 - **Speech-to-Text (`faster-whisper` small on CUDA)**: Transcribes voice in ~0.04s with Silero VAD adaptive silence detection (~0.6s).
 - **Text-to-Speech (Piper `en_GB-alan-medium.onnx`)**: Crisp British accent with ~50 ms chunked playback and instant interruption.
-- **Image Generation (SD WebUI Forge + Pollinations AI)**: Multi-model suite featuring local Stable Diffusion Forge (DreamShaper 8 on CUDA with xFormers) alongside free cloud fallback via Pollinations AI.
+- **Image Generation (Local SD WebUI Forge on GPU)**: Multi-model suite featuring local Stable Diffusion Forge (DreamShaper 8, Realistic Vision V5.1, FLUX.1 Schnell) running directly on the NVIDIA RTX GPU. 100% offline with zero cloud dependencies.
 
 ---
 
@@ -84,9 +85,9 @@ The desktop app in `app/` is a unified Electron + React client:
    - Toggle voice speech responses (Mute/Unmute TTS).
 
 3. **🎨 Image Gen Studio**:
-   - Model selector: choose explicitly between **DreamShaper 8 (Local SD Forge on GPU)**, **FLUX.1 Schnell (Cloud)**, **FLUX Realism (Cloud)**, **FLUX Anime (Cloud)**, or **Pollinations Turbo (Cloud)** — no automatic fallbacks, direct user control.
+   - Model selector: choose explicitly between local models: **DreamShaper 8 (SD 1.5)**, **Realistic Vision V5.1 (SD 1.5 Photorealistic)**, or **FLUX.1 Schnell** — no automatic fallbacks, direct user control.
    - Prompt input supporting text typing (default) or voice dictation via microphone.
-   - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 768×768).
+   - Advanced settings: negative prompt, inference steps slider, and aspect ratio / size presets (512×512, 512×768, 768×512, 1024×1024).
    - Gallery strip with full-resolution preview, prompt reuse, and direct PNG download.
 
 4. **📊 HUD Dashboard**:
@@ -165,7 +166,7 @@ python main.py
 cd D:\JARVIS\tools\forge
 .\start_forge_api.bat
 ```
-*Runs on port 7860 with `--xformers` and `--always-offload-from-vram`. If Forge is offline, JARVIS automatically routes image generation to Pollinations AI.*
+*Runs on port 7860 with `--xformers` and `--always-offload-from-vram`. Fully local-first and offline.*
 
 ---
 
@@ -191,7 +192,7 @@ python -m pytest tests/v2/ -v
 | **4-Tier Memory Inspector** | Search, add, or clear working/semantic/episodic memory | Click the **Memory** tab in the sidebar |
 | **Autonomous Workflows** | Goal decomposition and multi-step background tasks | *"Research AI tools and prepare a report"*, *"Organize my week"* |
 | **Voice Barge-In / Interruption** | Silences JARVIS mid-speech in ~50 ms | Say *"Hey Jarvis"* while he speaks, talk over him, or press **Escape** |
-| **Local Image Generation** | Renders images via local Forge or Pollinations | *"Generate an image of an Iron Man helmet on marble"*, *"Create a picture of..."* |
+| **Local Image Generation** | Renders images via local SD WebUI Forge on GPU | *"Generate an image of an Iron Man helmet on marble"*, *"Create a picture of..."* |
 | **Screen Vision & OCR** | Analyzes screen content or webcam feed | *"Describe my screen"*, *"Read the text on my screen"*, *"Look at webcam"* |
 | **Autonomous Code Engine** | Authors & runs Python scripts in hardened sandbox | *"Write a python script to solve Fibonacci and run it"*, *"Execute code to..."* |
 | **Windows Automation** | Opens/closes apps, inspects windows, screenshots | *"Open Notepad"*, *"Close Spotify"*, *"Focus Chrome"*, *"Take a screenshot"* |

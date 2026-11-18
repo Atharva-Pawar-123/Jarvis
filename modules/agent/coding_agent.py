@@ -9,9 +9,13 @@ import asyncio
 import logging
 import os
 import subprocess
+import difflib
+import shlex
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+
+from modules.security.sandbox import HardenedSandbox
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +26,24 @@ class AutonomousCodingAgent:
     def __init__(self, llm, code_engine, repo_path: Optional[Path] = None):
         self.llm = llm
         self.code_engine = code_engine
-        self.repo_path = repo_path or Path.cwd()
+        self.repo_path = (repo_path or Path.cwd()).resolve()
+        self.sandbox = HardenedSandbox()
+
+    def _resolve_safe_path(self, rel_path: str) -> Optional[Path]:
+        """Ensures path resides strictly within repository boundaries."""
+        target = (self.repo_path / rel_path).resolve()
+        try:
+            target.relative_to(self.repo_path)
+            return target
+        except ValueError:
+            logger.warning(f"Path traversal blocked: '{rel_path}' is outside repository root.")
+            return None
 
     async def inspect_directory(self, rel_path: str = ".") -> List[str]:
         """Lists directory files while ignoring common build/git directories."""
-        target_dir = (self.repo_path / rel_path).resolve()
-        if not target_dir.exists():
-            return [f"Error: Path {rel_path} does not exist."]
+        target_dir = self._resolve_safe_path(rel_path)
+        if not target_dir or not target_dir.exists():
+            return [f"Error: Path {rel_path} does not exist or is outside workspace."]
 
         ignored = {".git", "venv", "node_modules", "__pycache__", "dist", "build"}
         files = []
@@ -40,27 +55,27 @@ class AutonomousCodingAgent:
                     rel = full_p.relative_to(self.repo_path)
                     files.append(str(rel))
                 except Exception:
-                    files.append(str(full_p))
+                    pass
         return files[:100]
 
     async def read_file_content(self, rel_path: str) -> str:
-        """Reads code file content safely."""
-        target = (self.repo_path / rel_path).resolve()
-        if not target.exists():
-            return f"Error: File {rel_path} does not exist."
+        """Reads code file content safely within boundaries."""
+        target = self._resolve_safe_path(rel_path)
+        if not target or not target.exists():
+            return f"Error: File {rel_path} does not exist or is outside workspace."
         try:
             return target.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
             return f"Error reading file {rel_path}: {e}"
 
     async def run_syntax_and_tests(self, test_cmd: str = "pytest") -> Dict[str, Any]:
-        """Runs test verification in an isolated subprocess."""
-        start_t = datetime.now()
+        """Runs test verification without shell=True for security isolation."""
         try:
+            cmd_args = shlex.split(test_cmd) if isinstance(test_cmd, str) else list(test_cmd)
             res = await asyncio.to_thread(
                 subprocess.run,
-                test_cmd,
-                shell=True,
+                cmd_args,
+                shell=False,
                 cwd=str(self.repo_path),
                 capture_output=True,
                 text=True,
@@ -84,8 +99,13 @@ class AutonomousCodingAgent:
         step_callback: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
-        Reads target file, generates updated code block, validates syntax, and returns diff proposal.
+        Reads target file, generates updated code block, validates syntax,
+        produces a unified Git diff, and formats patch for user review.
         """
+        safe_target = self._resolve_safe_path(target_file)
+        if not safe_target:
+            return {"success": False, "error": f"Access denied: {target_file} is outside workspace boundary."}
+
         existing_code = await self.read_file_content(target_file)
         if existing_code.startswith("Error:"):
             return {"success": False, "error": existing_code}
@@ -124,10 +144,20 @@ class AutonomousCodingAgent:
             syntax_ok = False
             syntax_err = str(se)
 
+        # Generate unified Git diff
+        diff_lines = list(difflib.unified_diff(
+            existing_code.splitlines(keepends=True),
+            candidate_code.splitlines(keepends=True),
+            fromfile=f"a/{target_file}",
+            tofile=f"b/{target_file}"
+        ))
+        unified_diff = "".join(diff_lines)
+
         return {
             "target_file": target_file,
             "syntax_valid": syntax_ok,
             "syntax_error": syntax_err,
+            "unified_diff": unified_diff,
             "proposed_code_snippet": candidate_code[:500] + ("..." if len(candidate_code) > 500 else ""),
             "full_candidate_length": len(candidate_code),
             "status": "ready_for_review" if syntax_ok else "syntax_check_failed"

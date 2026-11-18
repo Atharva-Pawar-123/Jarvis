@@ -60,12 +60,36 @@ class FourTierMemorySystem:
 
     # ── Tier 1: Working Memory ──────────────────────────────────────────
     def format_working_context(self, active_session_id: str, active_goal: str = "") -> str:
-        procedural = self.get_all_procedural_preferences()
+        """
+        Synthesizes active working context across all 4 tiers:
+        - Active goal & session constraints
+        - Top procedural habits
+        - Relevant past episodes to guide execution
+        - Semantic memory facts
+        """
         context_lines = []
+
+        if active_goal:
+            context_lines.append(f"ACTIVE GOAL / TASK: {active_goal}")
+
+        # Inject procedural rules/habits
+        procedural = self.get_all_procedural_preferences()
         if procedural:
             context_lines.append("USER PREFERENCES & PROCEDURAL HABITS:")
-            for p in procedural:
+            for p in procedural[:5]:
                 context_lines.append(f"- [{p['category']}] {p['preference']}")
+
+        # Retrieve relevant episodic memory for active goal
+        if active_goal:
+            recent_episodes = self.get_recent_episodes(limit=3)
+            matching_episodes = [
+                e for e in recent_episodes
+                if any(w.lower() in e["user_goal"].lower() for w in active_goal.split() if len(w) > 3)
+            ]
+            if matching_episodes:
+                context_lines.append("RELEVANT PAST EPISODES & OUTCOMES:")
+                for ep in matching_episodes:
+                    context_lines.append(f"- Past Goal: '{ep['user_goal']}' -> Outcome: '{ep['outcome'][:150]}'")
 
         return "\n".join(context_lines)
 

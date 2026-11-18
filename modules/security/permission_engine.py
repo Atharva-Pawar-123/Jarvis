@@ -10,9 +10,32 @@ import enum
 import logging
 import asyncio
 import uuid
+import time
+import hashlib
+import json
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Actions that strictly require interactive human approval EVERY time
+ALWAYS_REQUIRE_FRESH_APPROVAL = {
+    "execute_code",
+    "delete_file",
+    "system_shutdown",
+    "system_restart",
+    "modify_system_settings"
+}
+
+
+class ApprovalRecord:
+    def __init__(self, payload_hash: str, created_at: float, ttl_seconds: int = 300):
+        self.payload_hash = payload_hash
+        self.created_at = created_at
+        self.ttl_seconds = ttl_seconds
+
+    def is_valid(self) -> bool:
+        return (time.time() - self.created_at) < self.ttl_seconds
 
 
 class RiskLevel(str, enum.Enum):
@@ -42,6 +65,9 @@ class ActionCategory:
     ANSWER_QUESTION = "answer_question"
     SEARCH_WEB = "search_web"
     READ_FILE = "read_file"
+    READ_DOCUMENT = "read_document"
+    DEEP_RESEARCH = "deep_research"
+    READ_EMAIL = "read_email"
     DRAFT_EMAIL = "draft_email"
     DRAFT_WHATSAPP = "draft_whatsapp"
     SYSTEM_STATUS = "system_status"
@@ -72,6 +98,13 @@ TOOL_TO_CATEGORY: Dict[str, str] = {
     "send_whatsapp": ActionCategory.SEND_WHATSAPP,
     "delete_file": ActionCategory.DELETE_FILE,
     "skill_calculator": ActionCategory.CALCULATE,
+    "web_search": ActionCategory.SEARCH_WEB,
+    "search_web": ActionCategory.SEARCH_WEB,
+    "read_document": ActionCategory.READ_DOCUMENT,
+    "deep_research": ActionCategory.DEEP_RESEARCH,
+    "read_email": ActionCategory.READ_EMAIL,
+    "read_file": ActionCategory.READ_FILE,
+    "write_file": ActionCategory.WRITE_FILE,
 }
 
 
@@ -81,6 +114,9 @@ DEFAULT_ACTION_POLICIES: Dict[str, tuple[RiskLevel, bool]] = {
     ActionCategory.ANSWER_QUESTION: (RiskLevel.LOW, False),
     ActionCategory.SEARCH_WEB: (RiskLevel.LOW, False),
     ActionCategory.READ_FILE: (RiskLevel.LOW, False),
+    ActionCategory.READ_DOCUMENT: (RiskLevel.LOW, False),
+    ActionCategory.DEEP_RESEARCH: (RiskLevel.LOW, False),
+    ActionCategory.READ_EMAIL: (RiskLevel.LOW, False),
     ActionCategory.DRAFT_EMAIL: (RiskLevel.LOW, False),
     ActionCategory.DRAFT_WHATSAPP: (RiskLevel.LOW, False),
     ActionCategory.SYSTEM_STATUS: (RiskLevel.LOW, False),
@@ -115,7 +151,8 @@ class PermissionEngine:
     def __init__(self, approval_callback=None):
         self.policies = dict(DEFAULT_ACTION_POLICIES)
         self.approval_callback = approval_callback
-        self.session_approvals: set[str] = set()
+        # Session-bound approval records: session_id -> { action_key: ApprovalRecord }
+        self.session_approvals: Dict[str, Dict[str, ApprovalRecord]] = {}
         # Pending interactive requests: request_id -> asyncio.Future
         self._pending_requests: Dict[str, asyncio.Future] = {}
 
@@ -134,8 +171,8 @@ class PermissionEngine:
 
     async def verify_and_authorize(self, action: str, details: Optional[Dict[str, Any]] = None, **kwargs) -> tuple[bool, str]:
         """
-        Evaluates risk against security policy.
-        If high risk, checks approval cache or awaits user confirmation via callback / Future.
+        Evaluates risk against security policy with strict session binding,
+        full SHA-256 payload digest verification, and expiration TTL.
         """
         details = details or {}
         norm_action = self.normalize_action(action)
@@ -145,26 +182,46 @@ class PermissionEngine:
         if not requires_approval:
             return True, "Action permitted automatically by security policy."
 
-        # Check in-memory session whitelist with SHA-256 payload hash (prevents collision across different code payloads)
-        import hashlib
-        import json
+        # Extract session_id strictly
+        session_id = kwargs.get("session_id") or details.get("session_id") or "default_session"
+
+        # Compute full 64-char SHA-256 hash of payload
         payload_repr = json.dumps(details, sort_keys=True, default=str)
-        payload_hash = hashlib.sha256(payload_repr.encode("utf-8")).hexdigest()[:16]
+        payload_hash = hashlib.sha256(payload_repr.encode("utf-8")).hexdigest()
         approval_key = f"{norm_action}:{payload_hash}"
 
-        if approval_key in self.session_approvals:
-            logger.info(f"Action '{norm_action}' (hash: {payload_hash}) auto-approved via session cache.")
-            return True, "Action approved via active session permission."
+        # Highly sensitive operations bypass cache and always require fresh user approval
+        can_use_cache = norm_action not in ALWAYS_REQUIRE_FRESH_APPROVAL
 
-        logger.warning(f"Action '{norm_action}' classified as {risk_level.value}. Requesting user confirmation.")
+        if can_use_cache and session_id in self.session_approvals:
+            record = self.session_approvals[session_id].get(approval_key)
+            if record and record.is_valid():
+                logger.info(f"Action '{norm_action}' (session: {session_id}) auto-approved via session cache.")
+                return True, "Action approved via active session permission."
+            elif record:
+                # Expired
+                del self.session_approvals[session_id][approval_key]
+
+        logger.warning(f"Action '{norm_action}' in session '{session_id}' requires user confirmation ({risk_level.value}).")
 
         # Interactive approval via callback if available
         if self.approval_callback:
             try:
-                # Pass session_id if available in kwargs/details
-                approved = await self.approval_callback(norm_action, details, **kwargs)
+                import inspect
+                sig = inspect.signature(self.approval_callback)
+                if "session_id" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                    approved = await self.approval_callback(norm_action, details, session_id=session_id, **kwargs)
+                else:
+                    approved = await self.approval_callback(norm_action, details)
+
                 if approved:
-                    self.session_approvals.add(approval_key)
+                    if session_id not in self.session_approvals:
+                        self.session_approvals[session_id] = {}
+                    self.session_approvals[session_id][approval_key] = ApprovalRecord(
+                        payload_hash=payload_hash,
+                        created_at=time.time(),
+                        ttl_seconds=300
+                    )
                     return True, "Action approved by user."
                 else:
                     return False, f"Action '{norm_action}' was rejected by user."

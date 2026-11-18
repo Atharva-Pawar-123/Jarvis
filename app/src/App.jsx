@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import Sidebar from './components/Sidebar'
 import TitleBar from './components/TitleBar'
+import CommandCenter from './components/CommandCenter'
 import ChatView from './components/ChatView'
 import VoiceView from './components/VoiceView'
 import ImageGenView from './components/ImageGenView'
@@ -51,6 +52,7 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <main className="flex-1 relative flex flex-col min-w-0 overflow-hidden">
+          {activeTab === 'command' && <CommandCenter />}
           {activeTab === 'chat' && <ChatView />}
           {activeTab === 'voice' && <VoiceView />}
           {activeTab === 'imagegen' && <ImageGenView />}

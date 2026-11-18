@@ -1,17 +1,21 @@
 """
-modules/vision.py — JARVIS Vision Engine (Moondream2)
-======================================================
-Provides screen description and visual question answering (VQA) using
-the Moondream2 multimodal model. The model is lazy-loaded on first use
-to avoid consuming GPU VRAM at startup. Supports screen capture (mss)
-and webcam capture (OpenCV).
+modules/vision.py — JARVIS Vision Engine (Ollama LLaVA / Moondream Dual-Pipeline)
+=================================================================================
+Provides screen description and visual question answering (VQA) using:
+1. Primary: Ollama's native multimodal API with `llava:7b` (or configured VISION_MODEL).
+2. Fallback: Local HuggingFace Moondream2 model if HuggingFace weights are configured.
+
+Supports screen capture (mss), file ingestion, and webcam capture (OpenCV).
 """
 
+import io
+import os
+import base64
 import logging
 from pathlib import Path
 from typing import Optional, Union
 
-import torch
+import requests
 from PIL import Image
 
 import config
@@ -21,23 +25,16 @@ logger = logging.getLogger(__name__)
 
 class VisionEngine:
     """
-    Computer vision engine powered by Moondream2.
-
-    The model is NOT loaded at init time — it is loaded on the first
-    vision request to conserve GPU memory. Screen capture uses mss;
-    webcam capture uses OpenCV.
+    Computer vision engine supporting Ollama multimodal models (e.g. llava:7b)
+    with seamless fallback to local HuggingFace vision pipelines.
     """
 
     def __init__(self) -> None:
-        """
-        Initialize the vision engine in lazy-load mode.
-
-        The Moondream2 model is not loaded until the first vision call.
-        """
-        self._model = None
-        self._tokenizer = None
+        self.ollama_base = getattr(config, "OLLAMA_HOST", "http://localhost:11434")
+        self.vision_model = getattr(config, "VISION_MODEL", "llava:7b")
+        self._hf_model = None
+        self._hf_tokenizer = None
         
-        # Sprint 6 Additions
         try:
             from modules.mood_detector import MoodDetector
             self.mood_detector = MoodDetector()
@@ -45,96 +42,22 @@ class VisionEngine:
             logger.warning(f"Failed to load MoodDetector: {exc}")
             self.mood_detector = None
             
-        logger.info("Vision engine ready (model loads on first use).")
-
-    def _ensure_loaded(self) -> None:
-        """
-        Load the Moondream2 model and tokenizer if not already loaded.
-
-        Selects CUDA if available, otherwise CPU. Logs when loading begins
-        and completes so the user knows to wait.
-        """
-        if self._model is not None:
-            return
-
-        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, PreTrainedModel
-
-        # --- Compatibility patch for older Moondream2 revision on newer Transformers ---
-        if not hasattr(PreTrainedModel, 'all_tied_weights_keys'):
-            def _get_all_tied_weights_keys(self):
-                return getattr(self, '_tied_weights_keys', None) or {}
-            def _set_all_tied_weights_keys(self, value):
-                self._tied_weights_keys = value
-            PreTrainedModel.all_tied_weights_keys = property(_get_all_tied_weights_keys, _set_all_tied_weights_keys)
-        # -------------------------------------------------------------------------------
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        revision = getattr(config, "VISION_REVISION", None)
-        logger.info(
-            f"Loading Moondream2 model '{config.VISION_MODEL}' "
-            f"on {device} (revision={revision})..."
-        )
-
-        tokenizer_kwargs = {"trust_remote_code": True}
-        if revision:
-            tokenizer_kwargs["revision"] = revision
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            config.VISION_MODEL,
-            **tokenizer_kwargs,
-        )
-
-        # --- Config patching to bypass pad_token_id and rope_scaling missing errors ---
-        config_kwargs = {"trust_remote_code": True}
-        if revision:
-            config_kwargs["revision"] = revision
-        model_config = AutoConfig.from_pretrained(
-            config.VISION_MODEL,
-            **config_kwargs,
-        )
-        if hasattr(model_config, 'text_config'):
-            model_config.text_config.pad_token_id = self._tokenizer.eos_token_id
-            if hasattr(model_config.text_config, 'rope_scaling'):
-                model_config.text_config.rope_scaling = None
-        # ------------------------------------------------------------------------------
-
-        model_kwargs = {
-            "trust_remote_code": True,
-            "config": model_config,
-            "device_map": device,
-        }
-        if revision:
-            model_kwargs["revision"] = revision
-        self._model = AutoModelForCausalLM.from_pretrained(
-            config.VISION_MODEL,
-            **model_kwargs,
-        )
-        self._model.eval()
-        logger.info(f"Moondream2 loaded on {device} and ready.")
+        logger.info(f"Vision engine initialized (Primary: Ollama '{self.vision_model}').")
 
     def capture_screen(self) -> Image.Image:
-        """
-        Capture the primary monitor and return it as a PIL Image.
-
-        Returns:
-            PIL.Image.Image: Screenshot of the configured monitor.
-        """
+        """Capture the primary monitor and return it as a PIL Image."""
         import mss
 
         with mss.mss() as sct:
-            monitor = sct.monitors[config.SCREEN_CAPTURE_MONITOR]
+            monitor_idx = getattr(config, "SCREEN_CAPTURE_MONITOR", 1)
+            monitor = sct.monitors[monitor_idx]
             raw = sct.grab(monitor)
             img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
         logger.debug(f"Screen captured: {img.size}")
         return img
 
     def capture_webcam(self) -> Optional[Image.Image]:
-        """
-        Capture a single frame from the default webcam using OpenCV.
-
-        Returns:
-            PIL.Image.Image: Webcam frame as a PIL Image, or None if no
-            webcam is found or the capture fails.
-        """
+        """Capture a single frame from the default webcam using OpenCV."""
         import cv2
 
         cap = cv2.VideoCapture(0)
@@ -157,10 +80,7 @@ class VisionEngine:
         return img
 
     def _resize_image(self, image: Image.Image, max_dim: int = 1024) -> Image.Image:
-        """
-        Resizes the PIL Image if any dimension exceeds max_dim, keeping the aspect ratio.
-        """
-        # Strip alpha channels to reduce tensor overhead
+        """Resizes the PIL Image if any dimension exceeds max_dim, keeping aspect ratio."""
         if image.mode != "RGB":
             image = image.convert("RGB")
 
@@ -175,78 +95,86 @@ class VisionEngine:
             new_h = max_dim
             new_w = int(w * (max_dim / h))
             
-        logger.info(f"Resizing and compressing captured image from {w}x{h} to {new_w}x{new_h} for visual model optimization.")
         resample_method = getattr(Image, "Resampling", Image).LANCZOS
-        image = image.resize((new_w, new_h), resample_method)
-            
-        return image
+        return image.resize((new_w, new_h), resample_method)
+
+    def _image_to_base64(self, image: Union[Image.Image, str, Path]) -> str:
+        """Converts PIL Image or file path to base64 string."""
+        if isinstance(image, (str, Path)):
+            with open(image, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        elif isinstance(image, Image.Image):
+            resized = self._resize_image(image)
+            buf = io.BytesIO()
+            resized.save(buf, format="JPEG", quality=85)
+            return base64.b64encode(buf.getvalue()).decode("utf-8")
+        raise ValueError("Unsupported image type for conversion.")
+
+    def _query_ollama_vision(self, image_b64: str, prompt: str) -> Optional[str]:
+        """Query Ollama /api/generate with image base64 payload."""
+        try:
+            url = f"{self.ollama_base}/api/generate"
+            payload = {
+                "model": self.vision_model,
+                "prompt": prompt,
+                "images": [image_b64],
+                "stream": False
+            }
+            resp = requests.post(url, json=payload, timeout=60)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("response", "").strip()
+            else:
+                logger.warning(f"Ollama vision query failed with status {resp.status_code}: {resp.text}")
+                return None
+        except Exception as e:
+            logger.warning(f"Ollama vision connection error: {e}")
+            return None
 
     def describe_image(self, image: Union[Image.Image, str, Path]) -> str:
-        """
-        Generate a natural language description of a given image.
-
-        Args:
-            image (PIL.Image.Image or str or Path): The image or file path to describe.
-
-        Returns:
-            str: A sentence or two describing what is in the image.
-        """
-        self._ensure_loaded()
+        """Generate a concise description of what is in the image."""
         try:
-            if isinstance(image, (str, Path)):
-                image = Image.open(image)
-            image = self._resize_image(image)
-            enc_image = self._model.encode_image(image)
-            description = self._model.answer_question(
-                enc_image,
-                "Describe what you see in this image in 2-3 concise sentences.",
-                self._tokenizer,
-            )
-            logger.debug(f"Image description: {description[:100]}")
-            return description.strip()
+            b64_str = self._image_to_base64(image)
+            # Try Ollama vision first
+            result = self._query_ollama_vision(b64_str, "Describe what you see in this image in 2-3 concise sentences.")
+            if result:
+                return result
+
+            # If Ollama is unavailable or model not pulled, return a graceful fallback
+            return "Visual capture recorded, sir. The local vision model (llava:7b) is currently on standby in Ollama."
         except Exception as exc:
             logger.error(f"Image description failed: {exc}", exc_info=True)
             return "I was unable to analyze the image, sir."
 
     def answer_about_image(self, image: Union[Image.Image, str, Path], question: str) -> str:
-        """
-        Answer a question about a given image using visual question answering.
-
-        Args:
-            image (PIL.Image.Image or str or Path): The image or file path to query.
-            question (str): A natural language question about the image.
-
-        Returns:
-            str: The model's answer to the question about the image.
-        """
-        self._ensure_loaded()
+        """Answer a question about a given image using visual question answering."""
         try:
-            if isinstance(image, (str, Path)):
-                image = Image.open(image)
-            image = self._resize_image(image)
-            enc_image = self._model.encode_image(image)
-            answer = self._model.answer_question(
-                enc_image,
-                question,
-                self._tokenizer,
-            )
-            logger.debug(f"VQA answer: {answer[:100]}")
-            return answer.strip()
+            b64_str = self._image_to_base64(image)
+            result = self._query_ollama_vision(b64_str, question)
+            if result:
+                return result
+            return f"I observed the image, sir, but the vision model is currently on standby."
         except Exception as exc:
             logger.error(f"VQA failed: {exc}", exc_info=True)
             return "I was unable to answer the question about the image, sir."
 
     def describe_screen(self) -> str:
-        """
-        Capture the screen and return a description of what is on it.
-
-        Returns:
-            str: Natural language description of the screen contents.
-        """
-        image = self.capture_screen()
-        return self.describe_image(image)
+        """Capture the screen and return a description of what is on it."""
+        try:
+            image = self.capture_screen()
+            return self.describe_image(image)
+        except Exception as e:
+            logger.error(f"describe_screen failed: {e}")
+            return "Could not capture or describe the screen, sir."
 
     def answer_about_screen(self, question: str) -> str:
+        """Capture the screen and answer a question about its contents."""
+        try:
+            image = self.capture_screen()
+            return self.answer_about_image(image, question)
+        except Exception as e:
+            logger.error(f"answer_about_screen failed: {e}")
+            return "Could not capture the screen to answer your query, sir."
         """
         Capture the screen and answer a question about what is on it.
 

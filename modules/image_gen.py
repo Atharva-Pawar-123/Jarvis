@@ -1,9 +1,9 @@
 """
-modules/image_gen.py — JARVIS Image Generation Engine (Pollinations AI)
-=======================================================================
-Generates high-quality images using the free Pollinations AI endpoint.
-Saves the images locally and pops them open natively on Windows.
-Requires absolutely no API keys or authentication.
+modules/image_gen.py — JARVIS Local Image Generation Engine (SD WebUI Forge)
+=============================================================================
+Generates high-quality images using local SD WebUI Forge on NVIDIA RTX GPU.
+100% offline, uncensored, zero cloud dependencies.
+Saves generated images locally with adaptive parameters for SD1.5, SDXL, and FLUX.
 """
 
 import os
@@ -23,22 +23,22 @@ logger = logging.getLogger(__name__)
 
 class ImageGenerationEngine:
     """
-    Image Generation Engine powered by local SD WebUI Forge (Default / Zero-Cost / Uncensored)
-    with seamless fallback to Pollinations AI.
+    Image Generation Engine powered strictly by local SD WebUI Forge on port 7860.
+    100% offline and local-first.
     """
 
     def __init__(self) -> None:
         self.save_dir = Path(config.IMAGES_DIR)
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self.local_url = getattr(config, "SD_LOCAL_URL", "http://127.0.0.1:7860")
-        self.api_url = "https://image.pollinations.ai/prompt/{prompt}"
         self.default_negative_prompt = (
             "(worst quality, low quality:1.4), (deformed, distorted, disfigured:1.3), "
             "poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, "
             "floating limbs, mutated hands and fingers, disconnected limbs, mutation, "
             "watermark, signature, text, blurry"
         )
-        self._ensure_forge_running()
+        # Note: Forge is checked and launched lazily on-demand when generate() or switch_model() is invoked,
+        # preventing boot blocking or premature VRAM allocation.
 
     def _ensure_forge_running(self) -> bool:
         """Checks if Forge API is responding; if not, launches it in the background."""
@@ -173,32 +173,11 @@ class ImageGenerationEngine:
         try:
             # 1. Try Local Stable Diffusion Forge first
             img_data = self._generate_local(working_prompt)
-            source = "Local Stable Diffusion" if img_data else None
-
-            # 2. Fallback to Pollinations AI if local engine is offline
-            if not img_data:
-                logger.info("Local engine unavailable; falling back to Pollinations AI...")
-                encoded_prompt = urllib.parse.quote(working_prompt.strip())
-                target_url = self.api_url.format(prompt=encoded_prompt)
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-                
-                max_retries = 3
-                for attempt in range(max_retries):
-                    response = requests.get(f"{target_url}?nologo=true&model=turbo", headers=headers, timeout=60)
-                    if response.status_code == 200:
-                        img_data = response.content
-                        source = "Pollinations AI"
-                        break
-                    elif response.status_code in (402, 429, 503):
-                        import time
-                        time.sleep(8)
-                    else:
-                        response.raise_for_status()
+            source = "Local Stable Diffusion Forge"
 
             if not img_data:
-                return "I apologize, sir, but both the local and cloud image engines were unable to render that."
+                logger.warning("Local SD Forge engine is offline or not responding on port 7860.")
+                return "I apologize, sir, but the local Stable Diffusion Forge engine is currently offline. Please ensure Forge is running on port 7860."
 
             # Save locally
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")

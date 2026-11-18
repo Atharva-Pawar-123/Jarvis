@@ -97,8 +97,15 @@ class HardenedSandbox:
         clean_env["PYTHONUNBUFFERED"] = "1"
         clean_env["PYTHONHASHSEED"] = "random"
 
+        # Filter any custom variables to ensure no sensitive credentials can leak back in
         if custom_vars:
-            clean_env.update(custom_vars)
+            for ck, cv in custom_vars.items():
+                ck_upper = ck.upper()
+                if any(ck_upper.startswith(p) for p in ["AWS_", "GMAIL_", "HA_", "TELEGRAM_", "AZURE_"]):
+                    continue
+                if ck_upper in SENSITIVE_ENV_KEYS or "TOKEN" in ck_upper or "SECRET" in ck_upper or "PASSWORD" in ck_upper:
+                    continue
+                clean_env[ck] = str(cv)
 
         return clean_env
 
@@ -124,52 +131,57 @@ class HardenedSandbox:
                     import ctypes
                     from ctypes import wintypes
 
+                    class IO_COUNTERS(ctypes.Structure):
+                        _fields_ = [
+                            ('ReadOperationCount', ctypes.c_uint64),
+                            ('WriteOperationCount', ctypes.c_uint64),
+                            ('OtherOperationCount', ctypes.c_uint64),
+                            ('ReadTransferCount', ctypes.c_uint64),
+                            ('WriteTransferCount', ctypes.c_uint64),
+                            ('OtherTransferCount', ctypes.c_uint64),
+                        ]
+
+                    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+                        _fields_ = [
+                            ('PerProcessUserTimeLimit', ctypes.c_int64),
+                            ('PerJobUserTimeLimit', ctypes.c_int64),
+                            ('LimitFlags', ctypes.c_uint32),
+                            ('MinimumWorkingSetSize', ctypes.c_size_t),
+                            ('MaximumWorkingSetSize', ctypes.c_size_t),
+                            ('ActiveProcessLimit', ctypes.c_uint32),
+                            ('Affinity', ctypes.c_size_t),
+                            ('PriorityClass', ctypes.c_uint32),
+                            ('SchedulingClass', ctypes.c_uint32),
+                        ]
+
+                    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+                        _fields_ = [
+                            ('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                            ('IoInfo', IO_COUNTERS),
+                            ('ProcessMemoryLimit', ctypes.c_size_t),
+                            ('JobMemoryLimit', ctypes.c_size_t),
+                            ('PeakProcessMemoryLimit', ctypes.c_size_t),
+                            ('PeakJobMemoryLimit', ctypes.c_size_t),
+                        ]
+
                     job_handle = ctypes.windll.kernel32.CreateJobObjectW(None, None)
                     if job_handle:
-                        # JobObjectExtendedLimitInformation = 9
-                        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
-                        # JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x0100
-                        class IO_COUNTERS(ctypes.Structure):
-                            _fields_ = [
-                                ('ReadOperationCount', ctypes.c_uint64),
-                                ('WriteOperationCount', ctypes.c_uint64),
-                                ('OtherOperationCount', ctypes.c_uint64),
-                                ('ReadTransferCount', ctypes.c_uint64),
-                                ('WriteTransferCount', ctypes.c_uint64),
-                                ('OtherTransferCount', ctypes.c_uint64),
-                            ]
-
-                        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
-                            _fields_ = [
-                                ('BasicLimitInformation', ctypes.c_byte * 48),
-                                ('IoInfo', IO_COUNTERS),
-                                ('ProcessMemoryLimit', ctypes.c_size_t),
-                                ('JobMemoryLimit', ctypes.c_size_t),
-                                ('PeakProcessMemoryLimit', ctypes.c_size_t),
-                                ('PeakJobMemoryLimit', ctypes.c_size_t),
-                            ]
-
                         limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-                        # Set memory limit in bytes
                         mem_bytes = self.memory_limit_mb * 1024 * 1024
                         limits.ProcessMemoryLimit = mem_bytes
                         limits.JobMemoryLimit = mem_bytes
-                        
-                        # Set limit flags at byte offset 16 (LimitFlags in JOBOBJECT_BASIC_LIMIT_INFORMATION)
-                        limit_flags = 0x2000 | 0x0100  # KILL_ON_JOB_CLOSE | PROCESS_MEMORY
-                        ctypes.memmove(
-                            ctypes.addressof(limits),
-                            ctypes.c_byte * 48,
-                            0
-                        )
-                        ctypes.c_uint32.from_buffer(limits.BasicLimitInformation, 16).value = limit_flags
+                        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000) | JOB_OBJECT_LIMIT_PROCESS_MEMORY (0x0100)
+                        limits.BasicLimitInformation.LimitFlags = 0x2000 | 0x0100
 
-                        ctypes.windll.kernel32.SetInformationJobObject(
+                        set_res = ctypes.windll.kernel32.SetInformationJobObject(
                             job_handle,
-                            9,
+                            9,  # JobObjectExtendedLimitInformation
                             ctypes.byref(limits),
                             ctypes.sizeof(limits)
                         )
+                        if not set_res:
+                            err = ctypes.GetLastError()
+                            logger.warning(f"SetInformationJobObject returned failure code: {err}")
                 except Exception as job_err:
                     logger.warning(f"Could not configure Windows Job Object: {job_err}")
 

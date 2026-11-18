@@ -14,7 +14,7 @@ class IntelligentLLMEngine:
     streaming output. Zero cloud API calls. Fully local.
     """
 
-    def __init__(self, system_prompt: str, stream_callback: Callable = None, state_callback: Callable = None):
+    def __init__(self, system_prompt: str, stream_callback: Callable = None, state_callback: Callable = None, gpu_scheduler = None):
         self.PRIMARY_MODEL = config.PRIMARY_MODEL
         self.FAST_MODEL = config.FAST_MODEL
         self.CODER_MODEL = config.CODER_MODEL
@@ -24,6 +24,7 @@ class IntelligentLLMEngine:
         self.system_prompt = system_prompt
         self.stream_callback = stream_callback
         self.state_callback = state_callback
+        self.gpu_scheduler = gpu_scheduler
         
         self.client = ollama.Client(host=config.OLLAMA_HOST)
         self.cache = diskcache.Cache(str(config.CACHE_DIR), size_limit=500 * 1024 * 1024)
@@ -47,6 +48,18 @@ class IntelligentLLMEngine:
     def generate(self, messages: List[Dict], stream: bool = True, use_cot: bool = False, model: str = None) -> str:
         model = model or self.PRIMARY_MODEL
         
+        # Coordinate GPU VRAM allocation if scheduler is attached
+        if self.gpu_scheduler and hasattr(self.gpu_scheduler, "prepare_for_llm"):
+            try:
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self.gpu_scheduler.prepare_for_llm())
+                except RuntimeError:
+                    asyncio.run(self.gpu_scheduler.prepare_for_llm())
+            except Exception:
+                pass
+
         retries = 3
         for attempt in range(retries):
             try:

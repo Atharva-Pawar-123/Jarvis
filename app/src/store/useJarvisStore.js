@@ -31,7 +31,7 @@ const useJarvisStore = create((set, get) => ({
   pendingApproval: null, // { request_id, action, details }
 
   // ── UI ────────────────────────────────────────────────────────
-  activeTab: 'chat', // chat | voice | imagegen | hud | memory | settings
+  activeTab: 'command', // command | chat | voice | imagegen | hud | memory | settings
   sidebarCollapsed: false,
 
   // ═══════════════════════════════════════════════════════════════

@@ -131,6 +131,7 @@ class JarvisRuntime:
             state_callback=lambda s: asyncio.create_task(
                 self.manager.broadcast_state(s)
             ),
+            gpu_scheduler=self.gpu_scheduler,
         )
         self.tts = StreamingTextToSpeech()
         self.stt = SpeechToText()

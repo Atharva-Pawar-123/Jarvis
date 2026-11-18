@@ -383,7 +383,7 @@ async def send_message(req: MessageRequest, rt: JarvisRuntime = Depends(get_runt
 
     # 3. Check Security / Permission Gate for classified high-risk actions
     if intent_name in (ActionCategory.SEND_EMAIL, ActionCategory.SEND_WHATSAPP, ActionCategory.DELETE_FILE, ActionCategory.SYSTEM_SHUTDOWN):
-        authorized, reason = await rt.permission_engine.verify_and_authorize(intent_name, {"query": req.content})
+        authorized, reason = await rt.permission_engine.verify_and_authorize(intent_name, {"query": req.content}, session_id=sid)
         if not authorized:
             refusal_response = f"I require your explicit authorization to proceed with {intent_name.replace('_', ' ')}, sir. Action was not executed."
             rt.session_db.add_message(sid, "jarvis", refusal_response)
@@ -970,6 +970,7 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                         response_text = await rt.orchestrator.execute_task(
                             query=content,
                             conversation_history=history,
+                            session_id=session_id,
                             step_callback=lambda step: rt.manager.send_to_session(session_id, {"type": "agent_step", "step": step})
                         )
                     else:
