@@ -30,6 +30,8 @@ from modules.iot_handler import IoTHandler
 from modules.vision import VisionEngine
 from modules.code_engine import CodeEngine
 from modules.image_gen import ImageGenerationEngine
+from modules.image_edit import ImageEditEngine
+from modules.image_studio_db import ImageStudioDB
 from modules.security.permission_engine import PermissionEngine, ActionCategory
 from modules.agent.tool_registry import (
     StructuredToolRegistry,
@@ -108,6 +110,8 @@ class JarvisRuntime:
     iot_h: Optional[IoTHandler] = None
     code_e: Optional[CodeEngine] = None
     image_gen: Optional[ImageGenerationEngine] = None
+    image_edit: Optional[ImageEditEngine] = None
+    image_studio_db: Optional[ImageStudioDB] = None
 
     # ── Agent Layer ───────────────────────────────────────────────
     orchestrator: Optional[UnifiedAgentOrchestrator] = None
@@ -150,8 +154,10 @@ class JarvisRuntime:
 
         try:
             self.image_gen = ImageGenerationEngine()
+            self.image_edit = ImageEditEngine()
+            self.image_studio_db = ImageStudioDB()
         except Exception as e:
-            logger.warning(f"Could not initialize ImageGenerationEngine: {e}")
+            logger.warning(f"Could not initialize ImageGenerationEngine / Studio: {e}")
 
         # ── Wire Permission Approval Callback to WebSocket Broadcast ──
         async def ui_approval_callback(action: str, details: dict, session_id: Optional[str] = None, **kw) -> bool:

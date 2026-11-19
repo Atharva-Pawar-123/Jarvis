@@ -51,10 +51,11 @@ export default function App() {
 
       if (cancelled || retries <= 0) return
 
-      // Phase 2: Backend is online — initialize sessions
+      // Phase 2: Backend is online — synchronize sessions reliably without overwriting
       try {
-        await fetchSessions()
-        if (!useJarvisStore.getState().activeSessionId) {
+        const existingSessions = await fetchSessions()
+        // ONLY create a session if the database has absolutely 0 sessions
+        if ((!existingSessions || existingSessions.length === 0) && !useJarvisStore.getState().activeSessionId) {
           await createSession()
         }
       } catch {

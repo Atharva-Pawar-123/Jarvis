@@ -155,6 +155,24 @@ class ImageGenRequest(BaseModel):
     width: Optional[int] = 512
     height: Optional[int] = 512
     enhance_prompt: Optional[bool] = True
+    session_id: Optional[str] = None
+
+class ImageEditRequest(BaseModel):
+    init_image: str  # base64 data url or raw base64
+    prompt: str
+    mask_image: Optional[str] = None
+    negative_prompt: Optional[str] = ""
+    model: Optional[str] = "auto"
+    denoising_strength: Optional[float] = 0.65
+    steps: Optional[int] = 20
+    cfg_scale: Optional[float] = 7.0
+    session_id: Optional[str] = None
+    parent_asset_id: Optional[int] = None
+
+class VisualSessionCreateRequest(BaseModel):
+    session_id: Optional[str] = None
+    title: Optional[str] = "New Visual Session"
+    mode: Optional[str] = "generate"
 
 class AutonomousGoalRequest(BaseModel):
     goal: str
@@ -753,13 +771,233 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
         logger.warning(f"Failed to save generated image to disk: {e}")
 
     img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+    # Index into visual assets database if active
+    asset_id = None
+    if rt.image_studio_db:
+        try:
+            asset = rt.image_studio_db.add_asset(
+                asset_type="generated",
+                filepath=str(filepath),
+                session_id=req.session_id,
+                prompt=req.prompt,
+                negative_prompt=req.negative_prompt or "",
+                model=model_choice,
+                width=width,
+                height=height,
+                aspect_ratio=f"{width}:{height}"
+            )
+            asset_id = asset.get("id")
+        except Exception as e:
+            logger.warning(f"Failed to record generated image in studio db: {e}")
+
     return {
+        "id": asset_id,
         "image_base64": img_b64,
         "source": source,
         "filepath": str(filepath),
         "prompt": req.prompt,
         "enhanced_prompt": enhanced_prompt
     }
+
+
+# ── Image Studio Pro Endpoints (Upload, Edit, Sessions, Library) ───────
+from fastapi import UploadFile, File
+
+@app.post("/api/image/upload")
+async def upload_image_api(
+    file: UploadFile = File(...),
+    session_id: Optional[str] = None,
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_edit or not rt.image_studio_db:
+        raise HTTPException(500, "Image Studio engine not initialized.")
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(400, "Empty upload payload.")
+
+    try:
+        filepath, b64_str, width, height = await asyncio.to_thread(
+            rt.image_edit.save_uploaded_image, contents, file.filename or "upload.png"
+        )
+        asset = rt.image_studio_db.add_asset(
+            asset_type="uploaded",
+            filepath=filepath,
+            session_id=session_id,
+            prompt=file.filename or "Uploaded Image",
+            width=width,
+            height=height
+        )
+        return {
+            "id": asset["id"],
+            "image_base64": b64_str,
+            "filepath": filepath,
+            "width": width,
+            "height": height,
+            "asset_type": "uploaded"
+        }
+    except Exception as e:
+        logger.error(f"Image upload failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Image upload failed: {str(e)}")
+
+
+@app.post("/api/image/edit")
+async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_edit or not rt.image_studio_db:
+        raise HTTPException(500, "Image Edit engine not initialized.")
+
+    if not req.init_image or not req.prompt:
+        raise HTTPException(400, "Both init_image and edit prompt are required.")
+
+    # GPU VRAM Coordination: park Ollama before local SD Forge img2img
+    try:
+        await rt.gpu_scheduler.prepare_for_image_gen()
+    except Exception as e:
+        logger.warning(f"GPU scheduler park failed: {e}")
+
+    checkpoint_title = None
+    if req.model and req.model.startswith("local:"):
+        checkpoint_title = req.model[len("local:"):]
+
+    edited_bytes = await asyncio.to_thread(
+        rt.image_edit.edit_image,
+        req.init_image,
+        req.prompt,
+        req.mask_image,
+        req.negative_prompt or "",
+        req.denoising_strength or 0.65,
+        req.steps or 20,
+        req.cfg_scale or 7.0,
+        "Euler a",
+        checkpoint_title
+    )
+
+    if not edited_bytes:
+        raise HTTPException(
+            503,
+            "Local Stable Diffusion Forge engine failed to edit the image or is offline on port 7860."
+        )
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"edit_{timestamp}.png"
+    filepath = rt.image_edit.save_dir / filename
+    try:
+        with open(filepath, "wb") as f:
+            f.write(edited_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to save edited image: {e}")
+
+    b64_str = base64.b64encode(edited_bytes).decode("utf-8")
+
+    asset = rt.image_studio_db.add_asset(
+        asset_type="edited",
+        filepath=str(filepath),
+        session_id=req.session_id,
+        prompt=req.prompt,
+        negative_prompt=req.negative_prompt or "",
+        model=req.model or "local",
+        parent_asset_id=req.parent_asset_id
+    )
+
+    return {
+        "id": asset["id"],
+        "image_base64": b64_str,
+        "filepath": str(filepath),
+        "prompt": req.prompt,
+        "source": "Local SD Forge (img2img/inpaint)",
+        "parent_asset_id": req.parent_asset_id
+    }
+
+
+@app.get("/api/image/sessions")
+async def list_visual_sessions(limit: int = 50, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_studio_db:
+        return {"sessions": []}
+    return {"sessions": rt.image_studio_db.list_sessions(limit=limit)}
+
+
+@app.post("/api/image/sessions/new")
+async def create_visual_session(req: VisualSessionCreateRequest, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    import uuid
+    sid = req.session_id or f"vis_{uuid.uuid4().hex[:12]}"
+    sess = rt.image_studio_db.create_session(sid, req.title or "New Visual Session", req.mode or "generate")
+    return sess
+
+
+@app.get("/api/image/sessions/{session_id}")
+async def get_visual_session(session_id: str, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    sess = rt.image_studio_db.get_session(session_id)
+    if not sess:
+        raise HTTPException(404, "Visual session not found")
+    
+    # Read files to base64 if needed for active canvas rendering
+    for asset in sess.get("assets", []):
+        fp = asset.get("filepath")
+        if fp and os.path.exists(fp):
+            try:
+                with open(fp, "rb") as f:
+                    asset["image_base64"] = base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                pass
+    return sess
+
+
+@app.delete("/api/image/sessions/{session_id}")
+async def delete_visual_session(session_id: str, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    rt.image_studio_db.delete_session(session_id)
+    return {"status": "deleted", "session_id": session_id}
+
+
+@app.get("/api/image/library")
+async def get_image_library(
+    type: Optional[str] = "all",
+    favorite: bool = False,
+    query: str = "",
+    limit: int = 60,
+    offset: int = 0,
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_studio_db:
+        return {"assets": []}
+    assets = rt.image_studio_db.list_assets(
+        asset_type=type,
+        favorite_only=favorite,
+        search_query=query,
+        limit=limit,
+        offset=offset
+    )
+    for a in assets:
+        fp = a.get("filepath")
+        if fp and os.path.exists(fp):
+            try:
+                with open(fp, "rb") as f:
+                    a["image_base64"] = base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                pass
+    return {"assets": assets}
+
+
+@app.post("/api/image/library/{asset_id}/favorite")
+async def toggle_library_favorite(asset_id: int, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    is_fav = rt.image_studio_db.toggle_favorite(asset_id)
+    return {"id": asset_id, "is_favorite": is_fav}
+
+
+@app.delete("/api/image/library/{asset_id}")
+async def delete_library_asset(asset_id: int, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    rt.image_studio_db.delete_asset(asset_id)
+    return {"status": "deleted", "id": asset_id}
 
 
 def _generate_pollinations_direct(prompt: str, submodel: str = "turbo"):

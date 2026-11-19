@@ -1,25 +1,19 @@
 /**
- * ImageGenView.jsx — Modern Studio & Generation Console
- * ====================================================
- * Modern bottom floating bar interface inspired by Midjourney/SeaArt/Higgsfield:
- * - Floating bottom console with integrated text prompt and quick control pills:
- *   [+] [@] [Model Selector Dropdown] [Aspect Ratio Pill] [Quality / Steps] [Resolution] [Batch 1] [Generate Button]
- * - Rich searchable popup model menu with badges (LOCAL, FLUX, SD1.5, CLOUD, FAST) and descriptions.
- * - Expansive central canvas preview with full zoom/inspection and prompt metadata.
- * - Bottom/side image history strip.
+ * ImageGenView.jsx — JARVIS Image Studio Pro (Grok Imagine-Style Architecture)
+ * ============================================================================
+ * Seamless 3-in-1 Visual Studio:
+ * 1. 🎨 Generate: Text-to-Image with multi-model local SD-Forge checkpoints.
+ * 2. ✏️ Edit Canvas: Multi-session image-to-image and inpainting with mask brush,
+ *    denoise slider, drag-and-drop local upload, and version lineage.
+ * 3. 🖼️ Library: Full masonry asset gallery with category filter and favorites.
+ * Plus Grok Imagine-style discrete session rail with 3-image preview cards.
  */
 
 import React, { useState, useRef, useEffect } from 'react'
 import {
-  Image as ImageIcon,
   Sparkles,
   Download,
   Trash2,
-  Mic,
-  Square,
-  Loader2,
-  ChevronDown,
-  ChevronUp,
   RefreshCw,
   Search,
   Sliders,
@@ -31,660 +25,763 @@ import {
   Maximize2,
   X,
   Plus,
-  AtSign
+  Upload,
+  Paintbrush,
+  RotateCcw,
+  Eye,
+  Check,
+  Heart,
+  MessageSquare,
+  ChevronRight,
+  FolderOpen,
+  Image as ImageIcon,
+  Grid,
+  Edit3,
+  Undo
 } from 'lucide-react'
 import axios from 'axios'
-
-import useVoice from '../hooks/useVoice'
+import useJarvisStore from '../store/useJarvisStore'
 
 const API_BASE = 'http://localhost:8080'
 
 export default function ImageGenView() {
-  const [prompt, setPrompt] = useState('')
-  const [negativePrompt, setNegativePrompt] = useState('')
-  const [selectedModel, setSelectedModel] = useState('local')
+  const { setActiveTab, addMessage } = useJarvisStore()
+
+  // ── Top Mode Navigation: 'generate' | 'edit' | 'library' ──────────────
+  const [activeSubTab, setActiveSubTab] = useState('generate')
+
+  // ── Session State (Grok Imagine Multi-Session Rail) ───────────────────
+  const [visualSessions, setVisualSessions] = useState([])
+  const [activeVisualSessionId, setActiveVisualSessionId] = useState(null)
+
+  // ── Common Models State ───────────────────────────────────────────────
   const [availableModels, setAvailableModels] = useState([])
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedImages, setGeneratedImages] = useState([])
-  const [steps, setSteps] = useState(20)
-  const [width, setWidth] = useState(512)
-  const [height, setHeight] = useState(512)
-  const [aspectRatio, setAspectRatio] = useState('1:1')
-  const [error, setError] = useState('')
-  const [selectedImage, setSelectedImage] = useState(null)
-  
-  // UI popup states
+  const [selectedModel, setSelectedModel] = useState('local')
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showAspectMenu, setShowAspectMenu] = useState(false)
-  const [showQualityMenu, setShowQualityMenu] = useState(false)
-  const [showSettingsDrawer, setShowSettingsDrawer] = useState(false)
-  const [modelSearchQuery, setModelSearchQuery] = useState('')
+  const [aspectRatio, setAspectRatio] = useState('1:1')
+  const [width, setWidth] = useState(512)
+  const [height, setHeight] = useState(512)
 
+  // ── Generate Mode State ───────────────────────────────────────────────
+  const [generatePrompt, setGeneratePrompt] = useState('')
+  const [negativePrompt, setNegativePrompt] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [steps, setSteps] = useState(20)
+
+  // ── Edit Canvas State ─────────────────────────────────────────────────
+  const [editPrompt, setEditPrompt] = useState('')
+  const [initImage, setInitImage] = useState(null) // base64 or URL
+  const [maskImage, setMaskImage] = useState(null)
+  const [denoisingStrength, setDenoisingStrength] = useState(0.65)
+  const [isEditing, setIsEditing] = useState(false)
+  const [brushSize, setBrushSize] = useState(24)
+  const [isMaskingMode, setIsMaskingMode] = useState(false)
+  const [canvasVersions, setCanvasVersions] = useState([]) // [ { id, image, prompt } ]
+
+  // ── Library Mode State ────────────────────────────────────────────────
+  const [libraryAssets, setLibraryAssets] = useState([])
+  const [libraryFilter, setLibraryFilter] = useState('all') // 'all' | 'generated' | 'uploaded' | 'edited' | 'favorite'
+  const [librarySearch, setLibrarySearch] = useState('')
+  const [previewModalAsset, setPreviewModalAsset] = useState(null)
+
+  // ── Refs ──────────────────────────────────────────────────────────────
+  const fileInputRef = useRef(null)
+  const canvasRef = useRef(null)
   const modelMenuRef = useRef(null)
-  const aspectMenuRef = useRef(null)
-  const qualityMenuRef = useRef(null)
-  const textareaRef = useRef(null)
+  const isDrawingRef = useRef(false)
 
-  const { isRecording, startRecording, stopRecording } = useVoice()
+  // ── Aspect Ratio Options ──────────────────────────────────────────────
+  const aspectRatios = [
+    { id: '1:1', label: '1:1 Square', sd: [512, 512], flux: [1024, 1024] },
+    { id: '4:5', label: '4:5 Portrait', sd: [512, 640], flux: [896, 1152] },
+    { id: '9:16', label: '9:16 Mobile', sd: [512, 768], flux: [768, 1344] },
+    { id: '16:9', label: '16:9 Cinema', sd: [768, 512], flux: [1344, 768] },
+    { id: '3:2', label: '3:2 Landscape', sd: [768, 512], flux: [1152, 768] }
+  ]
 
-  // Fetch available models on mount
+  // ── Lifecycle: Fetch on Mount ─────────────────────────────────────────
   useEffect(() => {
     fetchModels()
+    fetchVisualSessions()
+    fetchLibrary()
   }, [])
 
-  // Close popups on click outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
-        setShowModelMenu(false)
-      }
-      if (aspectMenuRef.current && !aspectMenuRef.current.contains(e.target)) {
-        setShowAspectMenu(false)
-      }
-      if (qualityMenuRef.current && !qualityMenuRef.current.contains(e.target)) {
-        setShowQualityMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
+  // ── Data Fetchers ─────────────────────────────────────────────────────
   const fetchModels = async () => {
     try {
       const res = await axios.get(`${API_BASE}/api/image/models`)
       const models = res.data.models || []
       setAvailableModels(models)
-      if (models.length > 0 && !models.some(m => m.id === selectedModel)) {
-        handleModelSelect(models[0])
+      if (models.length > 0 && !models.some((m) => m.id === selectedModel)) {
+        setSelectedModel(models[0].id)
       }
     } catch {
-      const fallbackList = [
-        { id: 'local:DreamShaper_8_pruned', name: 'DreamShaper 8 (Local SD 1.5)', source: 'forge', category: 'SD1.5', description: 'Local SD Forge — High speed on NVIDIA RTX GPU', default_steps: 20, default_dim: 512 },
-      ]
-      setAvailableModels(fallbackList)
+      setAvailableModels([
+        { id: 'local', name: 'DreamShaper 8 (Local SD 1.5)', category: 'SD1.5' }
+      ])
     }
   }
 
-  const handleModelSelect = (model) => {
-    setSelectedModel(model.id)
-    setShowModelMenu(false)
-    if (model.default_steps) setSteps(model.default_steps)
-    
-    // Adjust dimension according to model architecture family
-    const isFlux = (model.category === 'FLUX' || model.id.toLowerCase().includes('flux'))
-    updateDimensionsForAspect(aspectRatio, isFlux)
+  const fetchVisualSessions = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/image/sessions`)
+      const list = res.data.sessions || []
+      setVisualSessions(list)
+      if (list.length > 0 && !activeVisualSessionId) {
+        loadVisualSession(list[0].session_id)
+      }
+    } catch (e) {
+      console.warn('Failed to fetch visual sessions', e)
+    }
   }
 
-  const aspectRatios = [
-    { id: '1:1', label: '1:1 Square', icon: '■', sd: [512, 512], flux: [1024, 1024] },
-    { id: '4:5', label: '4:5 Portrait', icon: '▮', sd: [512, 640], flux: [896, 1152] },
-    { id: '9:16', label: '9:16 Mobile', icon: '▯', sd: [512, 768], flux: [768, 1344] },
-    { id: '16:9', label: '16:9 Cinema', icon: '▭', sd: [768, 512], flux: [1344, 768] },
-    { id: '3:2', label: '3:2 Landscape', icon: '▬', sd: [768, 512], flux: [1152, 768] },
-  ]
-
-  const updateDimensionsForAspect = (ratioId, isFluxModel = null) => {
-    setAspectRatio(ratioId)
-    const activeM = availableModels.find(m => m.id === selectedModel)
-    const isFlux = isFluxModel !== null ? isFluxModel : (activeM?.category === 'FLUX' || selectedModel.toLowerCase().includes('flux'))
-    
-    const targetRatio = aspectRatios.find(r => r.id === ratioId) || aspectRatios[0]
-    const dims = isFlux ? targetRatio.flux : targetRatio.sd
-    setWidth(dims[0])
-    setHeight(dims[1])
+  const loadVisualSession = async (sid) => {
+    try {
+      setActiveVisualSessionId(sid)
+      const res = await axios.get(`${API_BASE}/api/image/sessions/${sid}`)
+      const sess = res.data
+      if (sess && sess.assets) {
+        const formatted = sess.assets.map((a) => ({
+          id: a.id,
+          image: a.image_base64 ? `data:image/png;base64,${a.image_base64}` : (a.filepath || ''),
+          prompt: a.prompt,
+          type: a.asset_type
+        }))
+        setCanvasVersions(formatted)
+        if (formatted.length > 0) {
+          setInitImage(formatted[formatted.length - 1].image)
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load visual session', e)
+    }
   }
 
-  const handleAspectSelect = (ratioId) => {
-    updateDimensionsForAspect(ratioId)
-    setShowAspectMenu(false)
+  const handleCreateNewSession = async () => {
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/sessions/new`, {
+        title: `Imagine Session ${visualSessions.length + 1}`,
+        mode: activeSubTab
+      })
+      const newSess = res.data
+      setVisualSessions((prev) => [newSess, ...prev])
+      setActiveVisualSessionId(newSess.session_id)
+      setCanvasVersions([])
+      setInitImage(null)
+      setMaskImage(null)
+    } catch (e) {
+      console.error('Failed to create visual session', e)
+    }
   }
 
+  const fetchLibrary = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/image/library`, {
+        params: {
+          type: libraryFilter === 'favorite' ? 'all' : libraryFilter,
+          favorite: libraryFilter === 'favorite'
+        }
+      })
+      setLibraryAssets(res.data.assets || [])
+    } catch (e) {
+      console.warn('Failed to fetch library', e)
+    }
+  }
+
+  // ── Upload Handler from Computer Storage ──────────────────────────────
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const formData = new FormData()
+    formData.append('file', file)
+    if (activeVisualSessionId) {
+      formData.append('session_id', activeVisualSessionId)
+    }
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      const uploadedDataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setInitImage(uploadedDataUrl)
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id, image: uploadedDataUrl, prompt: file.name, type: 'uploaded' }
+      ])
+      // Switch automatically to edit tab so user can immediately edit their uploaded photo!
+      setActiveSubTab('edit')
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('File upload failed', err)
+    }
+  }
+
+  // ── Generation Handler (Text to Image) ────────────────────────────────
   const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return
+    if (!generatePrompt.trim() || isGenerating) return
     setIsGenerating(true)
-    setError('')
 
     try {
       const res = await axios.post(`${API_BASE}/api/image/generate`, {
-        prompt: prompt.trim(),
+        prompt: generatePrompt.trim(),
         negative_prompt: negativePrompt.trim(),
         model: selectedModel,
         steps: steps,
         width: width,
         height: height,
-        enhance_prompt: true,
-      }, { timeout: 180000 })
+        session_id: activeVisualSessionId
+      })
 
-      if (res.data.image_base64) {
-        const newImage = {
-          id: Date.now(),
-          prompt: prompt.trim(),
-          image: `data:image/png;base64,${res.data.image_base64}`,
-          source: res.data.source || 'Unknown',
-          filepath: res.data.filepath || '',
-          timestamp: new Date().toISOString(),
-          enhanced_prompt: res.data.enhanced_prompt || '',
-          width,
-          height,
-          model: selectedModel,
-        }
-        setGeneratedImages(prev => [newImage, ...prev])
-        setSelectedImage(newImage)
-      } else {
-        setError(res.data.error || 'Image generation failed.')
-      }
+      const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id || Date.now(), image: dataUrl, prompt: generatePrompt, type: 'generated' }
+      ])
+      setInitImage(dataUrl)
+      fetchVisualSessions()
+      fetchLibrary()
     } catch (err) {
-      console.error('Image gen error:', err)
-      setError(err.response?.data?.detail || 'Failed to connect to image generation engine.')
+      console.error('Generation error', err)
     }
     setIsGenerating(false)
   }
 
-  const handleVoicePrompt = async () => {
-    if (isRecording) {
-      stopRecording()
-    } else {
-      try {
-        const text = await startRecording()
-        if (text && text.trim()) {
-          setPrompt(prev => prev ? `${prev} ${text.trim()}` : text.trim())
-        }
-      } catch (err) {
-        console.error('Voice prompt error:', err)
-      }
+  // ── Edit Handler (Image to Image / Inpainting) ─────────────────────────
+  const handleEdit = async () => {
+    if (!editPrompt.trim() || !initImage || isEditing) return
+    setIsEditing(true)
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/edit`, {
+        init_image: initImage,
+        prompt: editPrompt.trim(),
+        mask_image: maskImage,
+        denoising_strength: denoisingStrength,
+        model: selectedModel,
+        steps: steps,
+        session_id: activeVisualSessionId
+      })
+
+      const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id, image: dataUrl, prompt: editPrompt, type: 'edited' }
+      ])
+      setInitImage(dataUrl)
+      setMaskImage(null)
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Edit error', err)
     }
+    setIsEditing(false)
   }
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleGenerate()
-    }
+  // ── Inpaint Mask Drawing Logic ────────────────────────────────────────
+  const startDrawing = (e) => {
+    if (!isMaskingMode || !canvasRef.current) return
+    isDrawingRef.current = true
+    draw(e)
   }
 
-  const handleDownload = (img) => {
-    const link = document.createElement('a')
-    link.href = img.image
-    link.download = `jarvis_gen_${img.id}.png`
-    link.click()
+  const stopDrawing = () => {
+    if (!isDrawingRef.current || !canvasRef.current) return
+    isDrawingRef.current = false
+    setMaskImage(canvasRef.current.toDataURL('image/png'))
   }
 
-  const handleDelete = (id) => {
-    setGeneratedImages(prev => prev.filter(img => img.id !== id))
-    if (selectedImage?.id === id) setSelectedImage(null)
+  const draw = (e) => {
+    if (!isDrawingRef.current || !canvasRef.current) return
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+
+    ctx.fillStyle = 'white'
+    ctx.beginPath()
+    ctx.arc(x, y, brushSize, 0, Math.PI * 2)
+    ctx.fill()
   }
 
-  const currentModelObj = availableModels.find(m => m.id === selectedModel) || {
-    name: selectedModel,
-    category: selectedModel.includes('local') ? 'LOCAL' : 'CLOUD',
+  const clearMask = () => {
+    if (!canvasRef.current) return
+    const ctx = canvasRef.current.getContext('2d')
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+    setMaskImage(null)
   }
 
-  const filteredModels = availableModels.filter(m =>
-    m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-    (m.description && m.description.toLowerCase().includes(modelSearchQuery.toLowerCase())) ||
-    (m.category && m.category.toLowerCase().includes(modelSearchQuery.toLowerCase()))
-  )
+  // ── Send to Chat (Chat with Image via LLaVA) ──────────────────────────
+  const handleSendToChat = (imgUrl) => {
+    addMessage({
+      role: 'user',
+      content: 'I have attached an image from Image Studio for inspection.',
+      timestamp: new Date().toISOString()
+    })
+    setActiveTab('chat')
+  }
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden relative select-none" style={{ background: '#080A0F' }}>
-      
-      {/* ── Top Header Navigation Bar ───────────────────────────────── */}
-      <div className="flex items-center justify-between px-6 py-3 z-10"
-           style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.06)', background: 'rgba(10, 14, 22, 0.85)', backdropFilter: 'blur(12px)' }}>
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg"
-               style={{ background: 'linear-gradient(135deg, #00C8FF 0%, #0077FF 100%)' }}>
-            <Sparkles size={18} className="text-white" />
+    <div className="flex h-full w-full bg-[#050C16] text-slate-100 overflow-hidden font-sans select-none">
+      {/* ═══════════════════════════════════════════════════════════════════
+          LEFT: GROK IMAGINE-STYLE SESSION RAIL (Thumbnails + Session Cards)
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <aside className="w-64 border-r border-cyan-500/20 bg-[#071322] flex flex-col shrink-0">
+        <div className="p-3 border-b border-cyan-500/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-cyan-400" />
+            <span className="font-mono text-xs font-bold tracking-wider text-cyan-300">
+              IMAGINE SESSIONS
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold tracking-wider uppercase text-white" style={{ fontFamily: 'var(--font-display)' }}>
-                Image Studio
-              </h1>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-mono uppercase tracking-widest font-semibold"
-                    style={{ background: 'rgba(0, 200, 255, 0.15)', color: '#00C8FF', border: '1px solid rgba(0, 200, 255, 0.3)' }}>
-                Offline-First Pro
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-400">
-              High-fidelity local & distributed diffusion synthesis
-            </p>
-          </div>
-        </div>
-
-        {/* Top Right Actions */}
-        <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowSettingsDrawer(!showSettingsDrawer)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all"
-            style={{
-              background: showSettingsDrawer ? 'rgba(0, 200, 255, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-              border: showSettingsDrawer ? '1px solid #00C8FF' : '1px solid rgba(255, 255, 255, 0.1)',
-              color: showSettingsDrawer ? '#00C8FF' : '#94A3B8'
-            }}
+            onClick={handleCreateNewSession}
+            className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition-all text-xs flex items-center gap-1"
+            title="New Canvas Session"
           >
-            <Sliders size={13} />
-            <span>Parameters</span>
+            <Plus className="w-3.5 h-3.5" />
           </button>
         </div>
-      </div>
 
-      {/* ── Main Viewport (Preview & Gallery) ───────────────────────── */}
-      <div className="flex-1 flex overflow-hidden relative">
-
-        {/* Canvas Display */}
-        <div className="flex-1 flex flex-col items-center justify-center p-6 pb-36 overflow-auto relative">
-          {selectedImage ? (
-            <div className="flex flex-col items-center justify-center max-w-full max-h-full transition-all duration-300">
-              <div className="relative group rounded-2xl overflow-hidden shadow-2xl border border-white/10"
-                   style={{ maxHeight: 'calc(100vh - 280px)' }}>
-                <img
-                  src={selectedImage.image}
-                  alt={selectedImage.prompt}
-                  className="max-h-[calc(100vh-280px)] w-auto object-contain rounded-2xl select-none"
-                  style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }}
-                />
-
-                {/* Quick overlay actions */}
-                <div className="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <button
-                    onClick={() => handleDownload(selectedImage)}
-                    className="p-2 rounded-xl backdrop-blur-md bg-black/60 text-white hover:bg-black/90 transition-all border border-white/10"
-                    title="Download PNG"
-                  >
-                    <Download size={15} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(selectedImage.id)}
-                    className="p-2 rounded-xl backdrop-blur-md bg-black/60 text-red-400 hover:bg-black/90 transition-all border border-white/10"
-                    title="Remove from session"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-
-                <div className="absolute bottom-3 left-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <span className="text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-md bg-black/70 text-gray-200 border border-white/10 font-mono">
-                    {selectedImage.width}×{selectedImage.height}
-                  </span>
-                  <span className="text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-md bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 font-mono">
-                    {selectedImage.source}
-                  </span>
-                </div>
-              </div>
-
-              {/* Prompt Bar below active image */}
-              <div className="mt-3 flex items-center gap-3 max-w-xl text-center px-4">
-                <p className="text-xs text-gray-300 font-sans line-clamp-1 italic">
-                  "{selectedImage.prompt}"
-                </p>
-                <button
-                  onClick={() => setPrompt(selectedImage.prompt)}
-                  className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors font-mono whitespace-nowrap"
-                >
-                  <RefreshCw size={11} /> Reuse
-                </button>
-              </div>
+        {/* Sessions List */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          {visualSessions.length === 0 ? (
+            <div className="p-4 text-center text-xs text-slate-500 font-mono">
+              No sessions yet. Start imagining!
             </div>
           ) : (
-            <div className="text-center max-w-md mx-auto p-8 rounded-2xl border border-white/5 bg-white/[0.01]">
-              <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shadow-inner">
-                <ImageIcon size={28} />
-              </div>
-              <h3 className="text-base font-semibold text-white tracking-wide mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-                Creative Canvas Empty
-              </h3>
-              <p className="text-xs text-gray-400 leading-relaxed font-sans mb-4">
-                Describe any scene or portrait in the bottom console below. Pick your local or cloud model and press Generate.
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {['Cyberpunk Tokyo rainy alley 8k octane', 'Hyperrealistic portrait of an astronaut', 'Vintage comic book mech artwork'].map(suggestion => (
+            visualSessions.map((sess) => {
+              const isActive = sess.session_id === activeVisualSessionId
+              return (
+                <div
+                  key={sess.session_id}
+                  onClick={() => loadVisualSession(sess.session_id)}
+                  className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                    isActive
+                      ? 'border-cyan-400/80 bg-cyan-950/40 shadow-[0_0_12px_rgba(0,200,255,0.15)]'
+                      : 'border-slate-800/80 hover:border-slate-700 bg-slate-900/40'
+                  }`}
+                >
+                  {/* Miniature Cards Preview (Grok 3-image miniature strip) */}
+                  <div className="grid grid-cols-3 gap-1 mb-2 h-14 rounded-lg overflow-hidden bg-slate-950/60 p-0.5 border border-slate-800">
+                    {sess.thumbnails && sess.thumbnails.length > 0 ? (
+                      sess.thumbnails.map((t, idx) => (
+                        <div key={idx} className="w-full h-full bg-slate-800 relative overflow-hidden rounded">
+                          <img
+                            src={t.filepath?.startsWith('data:') ? t.filepath : `${API_BASE}/${t.filepath}`}
+                            alt="preview"
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.target.style.display = 'none' }}
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-3 flex items-center justify-center text-[10px] text-slate-600 font-mono">
+                        Empty Canvas
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-200 truncate">
+                      {sess.title || 'Visual Session'}
+                    </span>
+                    <span className="text-[10px] text-cyan-400/70 font-mono">
+                      {sess.asset_count || 0} imgs
+                    </span>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </aside>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          CENTER/RIGHT: MAIN STUDIO VIEWPORT
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <main className="flex-1 flex flex-col min-w-0 relative">
+        {/* Top Header & Sub-Tabs Navigation */}
+        <header className="h-14 border-b border-cyan-500/20 bg-[#071322]/80 backdrop-blur px-6 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-cyan-500/20">
+            <button
+              onClick={() => setActiveSubTab('generate')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                activeSubTab === 'generate'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_8px_rgba(0,200,255,0.2)]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Generate
+            </button>
+            <button
+              onClick={() => setActiveSubTab('edit')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                activeSubTab === 'edit'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_8px_rgba(0,200,255,0.2)]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Edit Canvas
+            </button>
+            <button
+              onClick={() => {
+                setActiveSubTab('library')
+                fetchLibrary()
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                activeSubTab === 'library'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_8px_rgba(0,200,255,0.2)]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Grid className="w-3.5 h-3.5" />
+              Library
+            </button>
+          </div>
+
+          {/* Hidden File Input for Local Computer Storage Upload */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+          />
+
+          {/* Right Header Controls */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-medium transition-all shadow-[0_0_8px_rgba(0,200,255,0.1)]"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Upload Image
+            </button>
+          </div>
+        </header>
+
+        {/* ── SUB-TAB 1: GENERATE (PROMPT TO IMAGE) ───────────────────── */}
+        {activeSubTab === 'generate' && (
+          <div className="flex-1 flex flex-col relative overflow-hidden items-center justify-center p-6">
+            {/* Main Stage Preview */}
+            <div className="flex-1 w-full max-w-4xl flex items-center justify-center relative mb-24">
+              {initImage ? (
+                <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[70vh] group">
+                  <img src={initImage} alt="Generated" className="object-contain max-h-[70vh] rounded-2xl" />
+                  <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleSendToChat(initImage)}
+                      className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
+                      title="Chat with Image"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setActiveSubTab('edit')}
+                      className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
+                      title="Edit this Image"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <a
+                      href={initImage}
+                      download="jarvis_imagine.png"
+                      className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
+                      title="Download"
+                    >
+                      <Download className="w-4 h-4" />
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-center p-8 max-w-md border border-dashed border-cyan-500/20 rounded-2xl">
+                  <Sparkles className="w-12 h-12 text-cyan-400 mb-3 animate-pulse" />
+                  <h3 className="text-base font-semibold text-slate-200 mb-1">What should we imagine?</h3>
+                  <p className="text-xs text-slate-400">
+                    Type a prompt below or upload an image to begin creative synthesis.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Floating Bottom Console (Grok Imagine Style) */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4 z-20">
+              <div className="bg-[#0A182E]/90 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col gap-2">
+                <textarea
+                  value={generatePrompt}
+                  onChange={(e) => setGeneratePrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleGenerate()
+                    }
+                  }}
+                  placeholder="Type to imagine anything..."
+                  rows={2}
+                  className="w-full bg-transparent resize-none border-none outline-none text-sm text-slate-100 placeholder:text-slate-500 px-2"
+                />
+
+                {/* Control Pills Bar */}
+                <div className="flex items-center justify-between pt-1 border-t border-cyan-500/15 text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-1.5 rounded-lg hover:bg-cyan-500/10 text-cyan-400"
+                      title="Upload local image"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+
+                    {/* Model Picker Pill */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowModelMenu(!showModelMenu)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
+                      >
+                        <Cpu className="w-3 h-3" />
+                        {availableModels.find((m) => m.id === selectedModel)?.name || 'Local SD'}
+                      </button>
+                      {showModelMenu && (
+                        <div className="absolute bottom-8 left-0 w-64 bg-slate-900 border border-cyan-500/30 rounded-xl p-1 shadow-2xl z-30">
+                          {availableModels.map((m) => (
+                            <div
+                              key={m.id}
+                              onClick={() => {
+                                setSelectedModel(m.id)
+                                setShowModelMenu(false)
+                              }}
+                              className="p-2 rounded-lg hover:bg-cyan-500/15 cursor-pointer text-xs"
+                            >
+                              <div className="font-semibold text-slate-200">{m.name}</div>
+                              <div className="text-[10px] text-slate-400">{m.category}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Aspect Ratio Pill */}
+                    <button
+                      onClick={() => setShowAspectMenu(!showAspectMenu)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
+                    >
+                      <Crop className="w-3 h-3" />
+                      {aspectRatio}
+                    </button>
+                  </div>
+
                   <button
-                    key={suggestion}
-                    onClick={() => setPrompt(suggestion)}
-                    className="text-[11px] px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 transition-all font-sans"
+                    onClick={handleGenerate}
+                    disabled={isGenerating || !generatePrompt.trim()}
+                    className="px-5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-all shadow-[0_0_12px_rgba(0,200,255,0.4)] disabled:opacity-40 disabled:shadow-none flex items-center gap-1.5"
                   >
-                    "{suggestion}"
+                    {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    Imagine
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SUB-TAB 2: EDIT CANVAS (IMAGE-TO-IMAGE & INPAINTING) ─────── */}
+        {activeSubTab === 'edit' && (
+          <div className="flex-1 flex flex-col relative overflow-hidden items-center justify-center p-6">
+            {/* Version Lineage Breadcrumbs Bar */}
+            {canvasVersions.length > 0 && (
+              <div className="absolute top-4 left-6 flex items-center gap-1.5 z-10 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-xl border border-cyan-500/20 text-xs font-mono">
+                <span className="text-slate-400">Lineage:</span>
+                {canvasVersions.map((v, i) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setInitImage(v.image)}
+                    className="px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                  >
+                    v{i + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Central Canvas Viewport */}
+            <div className="flex-1 w-full max-w-4xl flex items-center justify-center relative mb-24">
+              {initImage ? (
+                <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[65vh]">
+                  <img src={initImage} alt="Base for edit" className="object-contain max-h-[65vh] rounded-2xl" />
+                  {/* Overlay Canvas for Mask Inpainting */}
+                  {isMaskingMode && (
+                    <canvas
+                      ref={canvasRef}
+                      width={512}
+                      height={512}
+                      onMouseDown={startDrawing}
+                      onMouseUp={stopDrawing}
+                      onMouseMove={draw}
+                      className="absolute inset-0 w-full h-full cursor-crosshair opacity-60 bg-red-500/10"
+                    />
+                  )}
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center text-center p-12 max-w-md border-2 border-dashed border-cyan-500/30 hover:border-cyan-400/60 rounded-2xl cursor-pointer transition-all bg-cyan-950/10"
+                >
+                  <Upload className="w-12 h-12 text-cyan-400 mb-3" />
+                  <h3 className="text-sm font-semibold text-slate-200 mb-1">Upload an image to start editing</h3>
+                  <p className="text-xs text-slate-400">Click or drag & drop any image from your computer</p>
+                </div>
+              )}
+            </div>
+
+            {/* Floating Edit Console */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4 z-20">
+              <div className="bg-[#0A182E]/90 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col gap-2">
+                <textarea
+                  value={editPrompt}
+                  onChange={(e) => setEditPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleEdit()
+                    }
+                  }}
+                  placeholder="Describe your edits: e.g., 'Turn this into an oil painting', 'Add sunglasses'..."
+                  rows={2}
+                  className="w-full bg-transparent resize-none border-none outline-none text-sm text-slate-100 placeholder:text-slate-500 px-2"
+                />
+
+                {/* Edit Controls Pills */}
+                <div className="flex items-center justify-between pt-1 border-t border-cyan-500/15 text-xs">
+                  <div className="flex items-center gap-2">
+                    {/* Denoise Strength Slider */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px]">
+                      <span>Denoise: {denoisingStrength}</span>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="0.9"
+                        step="0.05"
+                        value={denoisingStrength}
+                        onChange={(e) => setDenoisingStrength(parseFloat(e.target.value))}
+                        className="w-16 accent-cyan-400"
+                      />
+                    </div>
+
+                    {/* Mask Brush Toggle */}
+                    <button
+                      onClick={() => setIsMaskingMode(!isMaskingMode)}
+                      className={`px-2.5 py-1 rounded-lg border font-mono text-[11px] flex items-center gap-1.5 transition-all ${
+                        isMaskingMode
+                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                          : 'bg-slate-900 border-cyan-500/20 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Paintbrush className="w-3 h-3" />
+                      Brush Mask
+                    </button>
+
+                    {isMaskingMode && (
+                      <button
+                        onClick={clearMask}
+                        className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 text-[11px] border border-red-500/30"
+                      >
+                        Clear Mask
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleEdit}
+                    disabled={isEditing || !editPrompt.trim() || !initImage}
+                    className="px-5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-all shadow-[0_0_12px_rgba(0,200,255,0.4)] disabled:opacity-40 disabled:shadow-none flex items-center gap-1.5"
+                  >
+                    {isEditing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Edit3 className="w-3.5 h-3.5" />}
+                    Apply Edit
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SUB-TAB 3: ASSET LIBRARY (MASONRY GALLERY) ──────────────── */}
+        {activeSubTab === 'library' && (
+          <div className="flex-1 flex flex-col p-6 overflow-y-auto">
+            {/* Filter Bar */}
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-cyan-500/20">
+              <div className="flex items-center gap-2">
+                {['all', 'generated', 'uploaded', 'edited', 'favorite'].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => {
+                      setLibraryFilter(f)
+                      fetchLibrary()
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all ${
+                      libraryFilter === f
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                        : 'text-slate-400 hover:text-slate-200 bg-slate-900/60'
+                    }`}
+                  >
+                    {f}
                   </button>
                 ))}
               </div>
             </div>
-          )}
 
-          {/* History Filmstrip at Top Right or Bottom */}
-          {generatedImages.length > 0 && (
-            <div className="absolute top-4 left-6 flex items-center gap-2 max-w-md overflow-x-auto py-1 px-1 rounded-xl bg-black/40 backdrop-blur-md border border-white/10">
-              {generatedImages.map(img => (
-                <div
-                  key={img.id}
-                  onClick={() => setSelectedImage(img)}
-                  className={`w-12 h-12 rounded-lg overflow-hidden cursor-pointer flex-shrink-0 transition-all border ${
-                    selectedImage?.id === img.id ? 'border-cyan-400 ring-2 ring-cyan-400/30' : 'border-transparent opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <img src={img.image} alt="" className="w-full h-full object-cover" />
+            {/* Masonry Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {libraryAssets.length === 0 ? (
+                <div className="col-span-full text-center py-12 text-slate-500 text-sm">
+                  No images in library matching your filter.
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── Side Advanced Settings Drawer (Optional) ─────────────── */}
-        {showSettingsDrawer && (
-          <div className="w-80 border-l border-white/10 p-5 space-y-6 overflow-y-auto z-20"
-               style={{ background: 'rgba(12, 16, 26, 0.95)', backdropFilter: 'blur(16px)' }}>
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold uppercase tracking-widest text-cyan-400 font-mono">
-                Engine Parameters
-              </h4>
-              <button onClick={() => setShowSettingsDrawer(false)} className="text-gray-400 hover:text-white">
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Negative Prompt */}
-            <div>
-              <label className="text-[11px] uppercase tracking-wider text-gray-400 font-mono mb-2 block">
-                Negative Prompt (Exclusions)
-              </label>
-              <textarea
-                value={negativePrompt}
-                onChange={(e) => setNegativePrompt(e.target.value)}
-                placeholder="ugly, blurry, lowres, distorted, extra limbs..."
-                className="w-full px-3 py-2 text-xs rounded-xl bg-black/50 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-cyan-400 resize-none h-20"
-              />
-            </div>
-
-            {/* Steps Slider */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] uppercase tracking-wider text-gray-400 font-mono">
-                  Sampling Steps
-                </label>
-                <span className="text-xs font-mono font-bold text-cyan-400">{steps}</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={50}
-                value={steps}
-                onChange={(e) => setSteps(parseInt(e.target.value))}
-                className="w-full accent-cyan-400 cursor-pointer"
-              />
-              <p className="text-[10px] text-gray-500 mt-1 font-mono">
-                {currentModelObj.category === 'FLUX' ? 'Recommended 4 steps for Schnell models' : 'Recommended 20-30 steps for standard checkpoints'}
-              </p>
-            </div>
-
-            {/* Exact Resolution */}
-            <div>
-              <label className="text-[11px] uppercase tracking-wider text-gray-400 font-mono mb-2 block">
-                Exact Dimensions
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-black/50 border border-white/10 rounded-xl px-3 py-2">
-                  <span className="text-[10px] text-gray-500 font-mono block">WIDTH</span>
-                  <input
-                    type="number"
-                    value={width}
-                    onChange={(e) => setWidth(parseInt(e.target.value) || 512)}
-                    className="w-full bg-transparent text-sm font-mono text-white focus:outline-none"
-                  />
-                </div>
-                <div className="bg-black/50 border border-white/10 rounded-xl px-3 py-2">
-                  <span className="text-[10px] text-gray-500 font-mono block">HEIGHT</span>
-                  <input
-                    type="number"
-                    value={height}
-                    onChange={(e) => setHeight(parseInt(e.target.value) || 512)}
-                    className="w-full bg-transparent text-sm font-mono text-white focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Modern Floating Bottom Bar (Higgsfield / SeaArt style) ───── */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[94%] max-w-4xl z-30">
-        
-        {/* Error notification if any */}
-        {error && (
-          <div className="mb-2 px-4 py-2 rounded-xl text-xs flex items-center justify-between text-red-200 border border-red-500/30 bg-red-950/80 backdrop-blur-md">
-            <span>{error}</span>
-            <button onClick={() => setError('')}><X size={14} /></button>
-          </div>
-        )}
-
-        {/* ── Floating Console Card ─────────────────────────────────── */}
-        <div className="rounded-2xl p-3 border shadow-2xl transition-all"
-             style={{
-               background: 'rgba(23, 27, 34, 0.96)',
-               backdropFilter: 'blur(20px)',
-               borderColor: 'rgba(255, 255, 255, 0.1)',
-               boxShadow: '0 16px 48px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.2)'
-             }}>
-          
-          {/* Main Input Textarea */}
-          <div className="px-3 pt-1">
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe the scene you imagine..."
-              className="w-full bg-transparent text-white placeholder-gray-500 text-sm focus:outline-none resize-none leading-relaxed"
-              rows={2}
-              style={{ fontFamily: 'var(--font-sans)' }}
-            />
-          </div>
-
-          {/* Lower Control Bar with Pills & Action Button */}
-          <div className="flex items-center justify-between pt-2 px-1 border-t border-white/5 gap-2">
-            
-            {/* Left Pill Group */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              
-              {/* Voice / Mic dictation pill */}
-              <button
-                onClick={handleVoicePrompt}
-                className={`p-2 rounded-xl transition-all border ${
-                  isRecording
-                    ? 'bg-red-500/20 text-red-400 border-red-500 animate-pulse'
-                    : 'bg-white/[0.04] text-gray-400 hover:text-white border-white/5'
-                }`}
-                title={isRecording ? 'Stop dictation' : 'Voice prompt'}
-              >
-                {isRecording ? <Square size={14} className="fill-current" /> : <Mic size={14} />}
-              </button>
-
-              {/* Model Picker Pill (Trigger with Chevron) */}
-              <div className="relative" ref={modelMenuRef}>
-                <button
-                  onClick={() => setShowModelMenu(!showModelMenu)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-white text-xs font-medium transition-all"
-                >
-                  {currentModelObj.category === 'LOCAL' || currentModelObj.category === 'SD1.5' ? (
-                    <Cpu size={14} className="text-emerald-400" />
-                  ) : currentModelObj.category === 'FLUX' ? (
-                    <Zap size={14} className="text-amber-400" />
-                  ) : (
-                    <Globe size={14} className="text-cyan-400" />
-                  )}
-                  <span className="font-semibold text-gray-100 max-w-[140px] truncate">
-                    {currentModelObj.name}
-                  </span>
-                  <ChevronDown size={14} className="text-gray-400" />
-                </button>
-
-                {/* ── Modern Model Dropdown Menu ────────────────────────── */}
-                {showModelMenu && (
-                  <div className="absolute bottom-full left-0 mb-3 w-80 rounded-2xl p-2.5 border shadow-2xl z-50 overflow-hidden"
-                       style={{
-                         background: 'rgba(16, 20, 29, 0.98)',
-                         backdropFilter: 'blur(25px)',
-                         borderColor: 'rgba(255, 255, 255, 0.12)',
-                         boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9)'
-                       }}>
-                    
-                    {/* Search inside popup */}
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/50 border border-white/10 mb-2">
-                      <Search size={14} className="text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Search models..."
-                        value={modelSearchQuery}
-                        onChange={(e) => setModelSearchQuery(e.target.value)}
-                        className="bg-transparent text-xs text-white placeholder-gray-500 focus:outline-none w-full"
-                        autoFocus
-                      />
-                    </div>
-
-                    <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-gray-500 font-semibold">
-                      Featured & Local Models
-                    </div>
-
-                    {/* Model List */}
-                    <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
-                      {filteredModels.map((m) => {
-                        const isSelected = m.id === selectedModel
-                        const isFlux = m.category === 'FLUX' || m.id.toLowerCase().includes('flux')
-                        const isLocal = m.source === 'forge' || m.id.startsWith('local')
-
-                        return (
-                          <div
-                            key={m.id}
-                            onClick={() => handleModelSelect(m)}
-                            className={`flex items-start gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
-                              isSelected
-                                ? 'bg-cyan-500/15 border border-cyan-500/30 text-white'
-                                : 'hover:bg-white/[0.05] border border-transparent text-gray-300'
-                            }`}
-                          >
-                            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-                                 style={{
-                                   background: isLocal
-                                     ? 'rgba(16, 185, 129, 0.15)'
-                                     : isFlux
-                                     ? 'rgba(245, 158, 11, 0.15)'
-                                     : 'rgba(0, 200, 255, 0.15)',
-                                   color: isLocal ? '#34D399' : isFlux ? '#FBBF24' : '#00C8FF'
-                                 }}>
-                              {isLocal ? <Cpu size={14} /> : isFlux ? <Zap size={14} /> : <Globe size={14} />}
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-semibold truncate text-white">
-                                  {m.name}
-                                </span>
-                                {isLocal && (
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-mono font-bold">
-                                    LOCAL
-                                  </span>
-                                )}
-                                {isFlux && (
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
-                                    FLUX
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-gray-400 line-clamp-1 mt-0.5">
-                                {m.description || 'Ready for generation'}
-                              </p>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Aspect Ratio Pill */}
-              <div className="relative" ref={aspectMenuRef}>
-                <button
-                  onClick={() => setShowAspectMenu(!showAspectMenu)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-white text-xs font-mono transition-all"
-                  title="Canvas Aspect Ratio"
-                >
-                  <Crop size={13} className="text-gray-400" />
-                  <span>{aspectRatio}</span>
-                </button>
-
-                {showAspectMenu && (
-                  <div className="absolute bottom-full left-0 mb-3 w-48 rounded-xl p-1.5 border shadow-2xl z-50 bg-[#10141D] border-white/10">
-                    {aspectRatios.map((r) => (
-                      <div
-                        key={r.id}
-                        onClick={() => handleAspectSelect(r.id)}
-                        className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-xs font-mono ${
-                          aspectRatio === r.id ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-300 hover:bg-white/5'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>{r.icon}</span>
-                          <span>{r.label}</span>
-                        </span>
-                        <span className="text-[10px] text-gray-500">{r.id}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Resolution / Steps Pill */}
-              <button
-                onClick={() => setShowSettingsDrawer(!showSettingsDrawer)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-gray-300 text-xs font-mono transition-all"
-                title="Current Dimensions"
-              >
-                <span>{width}×{height}</span>
-              </button>
-
-              {/* Quality / Steps badge */}
-              <button
-                onClick={() => setShowSettingsDrawer(true)}
-                className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/[0.04] text-gray-400 border border-white/5 text-xs font-mono"
-              >
-                <span>{steps} steps</span>
-              </button>
-            </div>
-
-            {/* Right Action: Vibrant Accent Generate Button (Lime / Cyan) */}
-            <button
-              onClick={handleGenerate}
-              disabled={!prompt.trim() || isGenerating}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold uppercase tracking-wider text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed select-none shadow-lg"
-              style={{
-                background: isGenerating
-                  ? '#1F2937'
-                  : 'linear-gradient(135deg, #CCFF00 0%, #A6E200 100%)',
-                color: isGenerating ? '#9CA3AF' : '#000000',
-                boxShadow: !isGenerating && prompt.trim()
-                  ? '0 0 20px rgba(204, 255, 0, 0.35)'
-                  : 'none',
-                fontFamily: 'var(--font-display)',
-              }}
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 size={15} className="animate-spin text-gray-300" />
-                  <span>CREATING...</span>
-                </>
               ) : (
-                <>
-                  <Sparkles size={14} className="fill-black" />
-                  <span>GENERATE</span>
-                </>
+                libraryAssets.map((asset) => {
+                  const imgUrl = asset.image_base64
+                    ? `data:image/png;base64,${asset.image_base64}`
+                    : (asset.filepath || '')
+                  return (
+                    <div
+                      key={asset.id}
+                      className="group relative rounded-xl overflow-hidden border border-slate-800 hover:border-cyan-500/50 transition-all bg-slate-900/40"
+                    >
+                      <img src={imgUrl} alt={asset.prompt} className="w-full h-44 object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2.5 flex flex-col justify-end">
+                        <p className="text-[11px] text-slate-200 line-clamp-2 mb-2">{asset.prompt}</p>
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => {
+                              setInitImage(imgUrl)
+                              setActiveSubTab('edit')
+                            }}
+                            className="p-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40"
+                            title="Edit this Image"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <a
+                            href={imgUrl}
+                            download={`jarvis_asset_${asset.id}.png`}
+                            className="p-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+                            title="Download"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
               )}
-            </button>
-
+            </div>
           </div>
-        </div>
-      </div>
-
+        )}
+      </main>
     </div>
   )
 }

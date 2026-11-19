@@ -61,12 +61,22 @@ const useJarvisStore = create((set, get) => ({
   fetchSessions: async () => {
     try {
       const res = await fetch(`${API_BASE}/api/sessions`)
-      if (!res.ok) return
+      if (!res.ok) return []
       const data = await res.json()
       set({ sessions: data, isBackendOnline: true })
+
+      // Restore last active session if valid, otherwise select latest
+      const savedSid = localStorage.getItem('jarvis_active_session_id')
+      if (savedSid && data.some((s) => s.session_id === savedSid)) {
+        await get().loadSession(savedSid)
+      } else if (data.length > 0 && !get().activeSessionId) {
+        await get().loadSession(data[0].session_id)
+      }
+      return data
     } catch {
       // Backend offline — silently ignore
       set({ isBackendOnline: false })
+      return []
     }
   },
 
@@ -79,6 +89,7 @@ const useJarvisStore = create((set, get) => ({
       })
       if (!res.ok) return null
       const data = await res.json()
+      localStorage.setItem('jarvis_active_session_id', data.session_id)
       set((s) => ({
         sessions: [
           {
@@ -107,6 +118,7 @@ const useJarvisStore = create((set, get) => ({
       const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`)
       if (!res.ok) return
       const data = await res.json()
+      localStorage.setItem('jarvis_active_session_id', sessionId)
       set({
         activeSessionId: sessionId,
         messages: data.messages || [],
