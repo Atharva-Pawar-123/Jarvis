@@ -623,8 +623,14 @@ async def delete_procedural_memory(key: str, rt: JarvisRuntime = Depends(get_run
 
 # ── Image Generation Endpoints ───────────────────────────────────────
 @app.get("/api/image/models")
-async def list_image_models():
-    """List 100% locally hosted image models from SD WebUI Forge (No cloud / No Pollinations)."""
+async def list_image_models(mode: Optional[str] = None):
+    """
+    List 100% locally hosted image models from SD WebUI Forge.
+    Filters models by target mode:
+      - mode='generate': returns standard generative checkpoints (DreamShaper, Realistic Vision)
+      - mode='edit': returns dedicated inpainting and editing models (Realistic Vision Inpainting, ControlNet IP2P, etc.)
+      - mode=None / omitted: returns all models
+    """
     models = []
     local_models_found = []
 
@@ -639,7 +645,8 @@ async def list_image_models():
                 local_models_found.append(title)
                 title_lower = title.lower()
 
-                # Determine architecture family
+                # Determine architecture family & capabilities
+                is_inpaint = "inpaint" in title_lower or "inpainting" in title_lower or "ip2p" in title_lower
                 if "flux" in title_lower:
                     category = "FLUX"
                     desc = f"Local FLUX model (4-step Schnell / NF4 high fidelity): {item.get('filename', title)}"
@@ -652,6 +659,12 @@ async def list_image_models():
                     default_steps = 25
                     default_cfg = 6.0
                     default_dim = 1024
+                elif is_inpaint:
+                    category = "Inpainting"
+                    desc = f"Dedicated Local Inpaint Engine (Preserves identity & unmasked regions): {item.get('filename', title)}"
+                    default_steps = 25
+                    default_cfg = 7.0
+                    default_dim = 512
                 else:
                     category = "SD1.5"
                     desc = f"Local SD 1.5 checkpoint: {item.get('filename', title)}"
@@ -664,6 +677,7 @@ async def list_image_models():
                     "name": title,
                     "source": "forge",
                     "category": category,
+                    "is_edit_model": is_inpaint,
                     "description": desc,
                     "default_steps": default_steps,
                     "default_cfg": default_cfg,
@@ -672,37 +686,85 @@ async def list_image_models():
     except Exception:
         pass
 
-    # 2. Check disk directly if Forge is still booting up
-    if not models:
-        models_dir = Path(config.BASE_DIR) / "tools" / "forge" / "webui" / "models" / "Stable-diffusion"
-        if models_dir.exists():
-            for f in models_dir.glob("*.safetensors"):
-                title = f.stem
-                title_lower = title.lower()
-                category = "FLUX" if "flux" in title_lower else ("SDXL" if "xl" in title_lower else "SD1.5")
-                models.append({
-                    "id": f"local:{title}",
-                    "name": title,
-                    "source": "forge",
-                    "category": category,
-                    "description": f"Local GPU Checkpoint ({category}) on disk",
-                    "default_steps": 4 if category == "FLUX" else 20,
-                    "default_cfg": 1.0 if category == "FLUX" else 7.0,
-                    "default_dim": 1024 if category in ("FLUX", "SDXL") else 512,
-                })
+    # 2. Check disk directly if Forge is still booting up or refreshing
+    models_dir = Path(config.BASE_DIR) / "tools" / "forge" / "webui" / "models" / "Stable-diffusion"
+    if models_dir.exists():
+        for f in models_dir.glob("*.safetensors"):
+            title = f.stem
+            if any(m["name"] == title or m["id"] == f"local:{title}" for m in models):
+                continue
+            title_lower = title.lower()
+            is_inpaint = "inpaint" in title_lower or "inpainting" in title_lower or "ip2p" in title_lower
+            if "flux" in title_lower:
+                category = "FLUX"
+            elif "xl" in title_lower or "sdxl" in title_lower:
+                category = "SDXL"
+            elif is_inpaint:
+                category = "Inpainting"
+            else:
+                category = "SD1.5"
 
-    # 3. Always include default DreamShaper 8 fallback
+            models.append({
+                "id": f"local:{title}",
+                "name": title,
+                "source": "forge",
+                "category": category,
+                "is_edit_model": is_inpaint,
+                "description": f"Dedicated Inpaint Model" if is_inpaint else f"Local GPU Checkpoint ({category}) on disk",
+                "default_steps": 4 if category == "FLUX" else 20,
+                "default_cfg": 1.0 if category == "FLUX" else 7.0,
+                "default_dim": 1024 if category in ("FLUX", "SDXL") else 512,
+            })
+
+    # 3. Check ControlNet models directory for edit models
+    cn_dir = Path(config.BASE_DIR) / "tools" / "forge" / "webui" / "models" / "ControlNet"
+    if cn_dir.exists():
+        for f in cn_dir.glob("*.safetensors"):
+            title = f.stem
+            title_lower = title.lower()
+            if "ip2p" in title_lower:
+                name_display = "InstructPix2Pix (Instruction Edit)"
+            elif "inpaint" in title_lower:
+                name_display = "ControlNet Inpaint FP16 (Pixel Lock)"
+            elif "openpose" in title_lower:
+                name_display = "ControlNet OpenPose (Pose Lock)"
+            else:
+                name_display = f"ControlNet {title}"
+
+            models.append({
+                "id": f"controlnet:{title}",
+                "name": name_display,
+                "source": "controlnet",
+                "category": "ControlNet",
+                "is_edit_model": True,
+                "description": "Guided instruction & feature-preserving edit engine",
+                "default_steps": 20,
+                "default_cfg": 7.5,
+                "default_dim": 512,
+            })
+
+    # 4. Fallback if empty
     if not models:
         models.append({
-            "id": "local",
+            "id": "local:DreamShaper_8_pruned",
             "name": "DreamShaper 8 (Local SD 1.5)",
             "source": "forge",
             "category": "SD1.5",
+            "is_edit_model": False,
             "description": "Local SD Forge running DreamShaper 8 on NVIDIA RTX GPU",
             "default_steps": 20,
             "default_cfg": 7.0,
             "default_dim": 512,
         })
+
+    # Filter based on requested mode:
+    if mode == "generate":
+        filtered = [m for m in models if not m.get("is_edit_model", False)]
+        return {"models": filtered if filtered else models}
+    elif mode == "edit":
+        filtered = [m for m in models if m.get("is_edit_model", False)]
+        # If no edit-specific models downloaded yet, allow base checkpoints as fallback
+        return {"models": filtered if filtered else models}
 
     return {"models": models}
 

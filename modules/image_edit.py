@@ -90,7 +90,7 @@ class ImageEditEngine:
         model_checkpoint: Optional[str] = None
     ) -> Optional[bytes]:
         """
-        Executes img2img or inpainting via local SD-Forge API (/sdapi/v1/img2img).
+        Executes img2img, localized inpainting, or ControlNet IP2P instruction edit via SD-Forge.
         """
         # Clean clean base64 data URLs if present
         if "base64," in init_image_b64:
@@ -128,22 +128,49 @@ class ImageEditEngine:
             "resize_mode": 0, # Just resize
         }
 
+        # Check if model requested is a ControlNet model
+        controlnet_unit = None
+        if model_checkpoint and "controlnet:" in model_checkpoint:
+            cn_model_name = model_checkpoint.replace("controlnet:", "")
+            # Determine appropriate module
+            if "ip2p" in cn_model_name.lower():
+                cn_module = "none"
+            elif "inpaint" in cn_model_name.lower():
+                cn_module = "inpaint_only"
+            elif "openpose" in cn_model_name.lower():
+                cn_module = "openpose_full"
+            else:
+                cn_module = "none"
+
+            controlnet_unit = {
+                "enabled": True,
+                "module": cn_module,
+                "model": cn_model_name,
+                "weight": 1.0,
+                "resize_mode": "Just Resize",
+                "control_mode": "Balanced",
+            }
+            payload["alwayson_scripts"] = {
+                "controlnet": {
+                    "args": [controlnet_unit]
+                }
+            }
+        elif model_checkpoint:
+            actual_cp = model_checkpoint.replace("local:", "")
+            try:
+                requests.post(
+                    f"{self.local_url}/sdapi/v1/options",
+                    json={"sd_model_checkpoint": actual_cp},
+                    timeout=30
+                )
+            except Exception as e:
+                logger.warning(f"Failed to switch model checkpoint for img2img: {e}")
+
         if clean_mask:
             payload["mask"] = clean_mask
             payload["inpainting_fill"] = 1 # original
             payload["inpaint_full_res"] = True
             payload["inpaint_full_res_padding"] = 32
-
-        # Model switching if specific checkpoint requested
-        if model_checkpoint:
-            try:
-                requests.post(
-                    f"{self.local_url}/sdapi/v1/options",
-                    json={"sd_model_checkpoint": model_checkpoint},
-                    timeout=30
-                )
-            except Exception as e:
-                logger.warning(f"Failed to switch model checkpoint for img2img: {e}")
 
         headers = {"Content-Type": "application/json"}
         try:

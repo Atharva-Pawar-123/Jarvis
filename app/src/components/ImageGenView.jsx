@@ -57,8 +57,10 @@ export default function ImageGenView() {
   const [openSessionMenuId, setOpenSessionMenuId] = useState(null)
 
   // ── Common Models State ───────────────────────────────────────────────
-  const [availableModels, setAvailableModels] = useState([])
-  const [selectedModel, setSelectedModel] = useState('local')
+  const [generateModels, setGenerateModels] = useState([])
+  const [editModels, setEditModels] = useState([])
+  const [selectedGenerateModel, setSelectedGenerateModel] = useState('local')
+  const [selectedEditModel, setSelectedEditModel] = useState('local')
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showEditModelMenu, setShowEditModelMenu] = useState(false)
   const [showAspectMenu, setShowAspectMenu] = useState(false)
@@ -135,16 +137,27 @@ export default function ImageGenView() {
   // ── Data Fetchers ─────────────────────────────────────────────────────
   const fetchModels = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/api/image/models`)
-      const models = res.data.models || []
-      setAvailableModels(models)
-      if (models.length > 0 && !models.some((m) => m.id === selectedModel)) {
-        setSelectedModel(models[0].id)
+      const [genRes, editRes] = await Promise.all([
+        axios.get(`${API_BASE}/api/image/models`, { params: { mode: 'generate' } }),
+        axios.get(`${API_BASE}/api/image/models`, { params: { mode: 'edit' } })
+      ])
+      const gModels = genRes.data.models || []
+      const eModels = editRes.data.models || []
+
+      setGenerateModels(gModels)
+      setEditModels(eModels)
+
+      if (gModels.length > 0 && !gModels.some((m) => m.id === selectedGenerateModel)) {
+        setSelectedGenerateModel(gModels[0].id)
+      }
+      if (eModels.length > 0 && !eModels.some((m) => m.id === selectedEditModel)) {
+        setSelectedEditModel(eModels[0].id)
       }
     } catch {
-      setAvailableModels([
-        { id: 'local', name: 'DreamShaper 8 (Local SD 1.5)', category: 'SD1.5' }
-      ])
+      const fallbackGen = [{ id: 'local:DreamShaper_8_pruned', name: 'DreamShaper 8 (Local SD 1.5)', category: 'SD1.5' }]
+      const fallbackEdit = [{ id: 'local:DreamShaper_8_pruned', name: 'DreamShaper 8 (Img2Img)', category: 'SD1.5' }]
+      setGenerateModels(fallbackGen)
+      setEditModels(fallbackEdit)
     }
   }
 
@@ -303,7 +316,7 @@ export default function ImageGenView() {
       const res = await axios.post(`${API_BASE}/api/image/generate`, {
         prompt: generatePrompt.trim(),
         negative_prompt: negativePrompt.trim(),
-        model: selectedModel,
+        model: selectedGenerateModel,
         steps: steps,
         width: width,
         height: height,
@@ -338,7 +351,7 @@ export default function ImageGenView() {
         prompt: editPrompt.trim(),
         mask_image: maskImage,
         denoising_strength: denoisingStrength,
-        model: selectedModel,
+        model: selectedEditModel,
         steps: steps,
         session_id: activeVisualSessionId
       })
@@ -672,15 +685,15 @@ export default function ImageGenView() {
                         className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
                       >
                         <Cpu className="w-3 h-3" />
-                        {availableModels.find((m) => m.id === selectedModel)?.name || 'Local SD'}
+                        {generateModels.find((m) => m.id === selectedGenerateModel)?.name || 'Local SD'}
                       </button>
                       {showModelMenu && (
                         <div className="absolute bottom-8 left-0 w-64 bg-slate-900 border border-cyan-500/30 rounded-xl p-1 shadow-2xl z-30">
-                          {availableModels.map((m) => (
+                          {generateModels.map((m) => (
                             <div
                               key={m.id}
                               onClick={() => {
-                                setSelectedModel(m.id)
+                                setSelectedGenerateModel(m.id)
                                 setShowModelMenu(false)
                               }}
                               className="p-2 rounded-lg hover:bg-cyan-500/15 cursor-pointer text-xs"
@@ -882,21 +895,24 @@ export default function ImageGenView() {
                         className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
                       >
                         <Cpu className="w-3 h-3" />
-                        {availableModels.find((m) => m.id === selectedModel)?.name || 'Local SD'}
+                        {editModels.find((m) => m.id === selectedEditModel)?.name || 'Local SD (Inpaint)'}
                       </button>
                       {showEditModelMenu && (
-                        <div className="absolute bottom-8 left-0 w-64 bg-slate-900 border border-cyan-500/30 rounded-xl p-1 shadow-2xl z-30">
-                          {availableModels.map((m) => (
+                        <div className="absolute bottom-8 left-0 w-72 bg-slate-900 border border-cyan-500/30 rounded-xl p-1 shadow-2xl z-30">
+                          {editModels.map((m) => (
                             <div
                               key={m.id}
                               onClick={() => {
-                                setSelectedModel(m.id)
+                                setSelectedEditModel(m.id)
                                 setShowEditModelMenu(false)
                               }}
                               className="p-2 rounded-lg hover:bg-cyan-500/15 cursor-pointer text-xs"
                             >
                               <div className="font-semibold text-slate-200">{m.name}</div>
-                              <div className="text-[10px] text-slate-400">{m.category}</div>
+                              <div className="text-[10px] text-cyan-400 font-mono">{m.category}</div>
+                              {m.description && (
+                                <div className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{m.description}</div>
+                              )}
                             </div>
                           ))}
                         </div>
