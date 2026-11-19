@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
-import { Cpu, HardDrive, Activity, Thermometer, Zap, Layers, RefreshCw } from 'lucide-react'
+import { Cpu, HardDrive, Activity, Thermometer, Zap, Layers, RefreshCw, Radio, ShieldCheck } from 'lucide-react'
+import ArcReactorCanvas from './ArcReactorCanvas'
 
 export default function HUDView() {
   const [telemetry, setTelemetry] = useState({
@@ -97,7 +98,7 @@ export default function HUDView() {
   }
 
   return (
-    <div className="flex-1 flex flex-col p-6 h-full overflow-y-auto" style={{ background: 'var(--bg-primary)' }}>
+    <div className="flex-1 flex flex-col p-6 h-full overflow-y-auto relative z-10" style={{ background: 'transparent' }}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6 pb-4" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-3">
@@ -121,6 +122,44 @@ export default function HUDView() {
         >
           <RefreshCw size={13} /> Refresh
         </button>
+      </div>
+
+      {/* Central Arc Reactor Core + Telemetry Visualizer */}
+      <div className="mb-6 p-6 rounded-2xl border border-cyan-500/25 bg-[#030d1a]/70 backdrop-blur-md shadow-[0_0_30px_rgba(0,200,255,0.08)] flex flex-col lg:flex-row items-center justify-between gap-6">
+        <div className="flex-1 text-center lg:text-left">
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/30 text-cyan-300 font-mono text-[11px] mb-3">
+            <Radio size={12} className="animate-pulse text-cyan-400" />
+            <span>PRIMARY CORE ACTIVE · MARK VII SYNCHRONIZED</span>
+          </div>
+          <h3 className="text-2xl font-black text-slate-100 tracking-wider font-mono mb-2">
+            ARC REACTOR ENGINE
+          </h3>
+          <p className="text-xs text-slate-400 max-w-md font-sans leading-relaxed mb-4">
+            Dynamic tactical radar and core frequency monitoring. Spin velocity and reactor thermal glow modulate proportionally with live GPU & neural processing loads.
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs font-mono">
+            <div className="px-3 py-2 rounded-xl bg-slate-900/80 border border-cyan-500/20">
+              <span className="text-slate-500 block text-[10px]">CORE THERMAL</span>
+              <span className="text-cyan-300 font-bold text-sm">{telemetry.gpu_temp_c}°C</span>
+            </div>
+            <div className="px-3 py-2 rounded-xl bg-slate-900/80 border border-cyan-500/20">
+              <span className="text-slate-500 block text-[10px]">VRAM BUDGET</span>
+              <span className="text-cyan-300 font-bold text-sm">{telemetry.vram_used_mb} MB</span>
+            </div>
+            <div className="px-3 py-2 rounded-xl bg-slate-900/80 border border-cyan-500/20">
+              <span className="text-slate-500 block text-[10px]">ACTIVE SUBSYSTEM</span>
+              <span className="text-amber-300 font-bold text-sm uppercase">{telemetry.active_consumer}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Rotating Arc Reactor */}
+        <div className="relative flex items-center justify-center p-2">
+          <ArcReactorCanvas
+            activeLoad={Math.max(telemetry.cpu_percent, telemetry.gpu_vram_percent)}
+            size={340}
+          />
+        </div>
       </div>
 
       {/* Main Gauges Grid */}

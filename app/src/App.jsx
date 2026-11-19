@@ -9,6 +9,7 @@ import TaskView from './components/TaskView'
 import HUDView from './components/HUDView'
 import MemoryView from './components/MemoryView'
 import SettingsView from './components/SettingsView'
+import HexBackground from './components/HexBackground'
 
 import useJarvisStore from './store/useJarvisStore'
 import useWebSocket from './hooks/useWebSocket'
@@ -68,9 +69,10 @@ export default function App() {
 
   return (
     <div style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-         className="flex flex-col h-screen w-full overflow-hidden">
+         className="flex flex-col h-screen w-full overflow-hidden relative">
+      <HexBackground />
       <TitleBar />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative z-10">
         <Sidebar />
         <main className="flex-1 relative flex flex-col min-w-0 overflow-hidden">
           {activeTab === 'command' && <CommandCenter />}
