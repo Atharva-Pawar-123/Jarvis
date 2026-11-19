@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   LayoutDashboard,
   Cpu,
@@ -18,11 +18,13 @@ import {
   Mic,
   Sparkles,
   Flame,
-  Volume2
+  Volume2,
+  MoreVertical
 } from 'lucide-react'
 import useJarvisStore from '../store/useJarvisStore'
 
 export default function Sidebar() {
+  const [openSessionMenuId, setOpenSessionMenuId] = useState(null)
   const {
     sidebarCollapsed,
     toggleSidebar,
@@ -108,6 +110,73 @@ export default function Sidebar() {
             </button>
           )
         })}
+
+        {/* Nested Conversations Sub-List with 3-Dots Delete Menu (Matching Reference Image) */}
+        {!sidebarCollapsed && activeTab === 'chat' && (
+          <div className="pt-2 mt-2 border-t border-cyan-500/15 space-y-1">
+            <div className="flex items-center justify-between px-2 py-1 text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+              <span>Recent Chats</span>
+              <button
+                onClick={() => createSession()}
+                className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                title="New Chat"
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+
+            {sessions.map((sess) => {
+              const isSelected = sess.session_id === activeSessionId
+              return (
+                <div
+                  key={sess.session_id}
+                  onClick={() => loadSession(sess.session_id)}
+                  className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-sans cursor-pointer transition-colors ${
+                    isSelected
+                      ? 'bg-cyan-950/70 text-cyan-200 border border-cyan-500/40 shadow-[0_0_8px_rgba(0,200,255,0.15)]'
+                      : 'text-slate-300 hover:text-cyan-200 hover:bg-[#07172b]'
+                  }`}
+                >
+                  <span className="truncate pr-1 text-[11px] font-medium flex-1">
+                    {sess.title || 'New conversation'}
+                  </span>
+
+                  {/* 3-Dots Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setOpenSessionMenuId(openSessionMenuId === sess.session_id ? null : sess.session_id)
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-opacity"
+                    title="Chat options"
+                  >
+                    <MoreVertical size={13} />
+                  </button>
+
+                  {/* Popover Context Menu (Matching user reference image) */}
+                  {openSessionMenuId === sess.session_id && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute right-0 top-7 w-44 bg-[#0B1626] border border-cyan-500/30 rounded-xl py-1 shadow-2xl z-40 text-xs animate-fade-in"
+                    >
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenSessionMenuId(null)
+                          deleteSession(sess.session_id)
+                        }}
+                        className="px-3 py-2 flex items-center justify-between text-red-400 hover:bg-red-500/15 cursor-pointer transition-colors"
+                      >
+                        <span className="font-medium">Delete</span>
+                        <span className="text-[10px] font-mono text-red-400/60">D</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Voice Status Dock at Bottom of Sidebar */}

@@ -114,8 +114,24 @@ class ImageStudioDB:
             sess["assets"] = [dict(a) for a in asset_cursor.fetchall()]
             return sess
 
-    def delete_session(self, session_id: str) -> bool:
+    def delete_session(self, session_id: str, delete_files: bool = True) -> bool:
         with self._get_connection() as conn:
+            # First fetch all filepaths associated with this session if file deletion is desired
+            if delete_files:
+                cursor = conn.execute("SELECT filepath FROM visual_assets WHERE session_id = ?", (session_id,))
+                rows = cursor.fetchall()
+                for r in rows:
+                    fp = r["filepath"]
+                    if fp and not fp.startswith("data:"):
+                        try:
+                            p = Path(fp)
+                            if p.exists() and p.is_file():
+                                p.unlink(missing_ok=True)
+                        except Exception as e:
+                            logger.warning(f"Could not delete physical image file {fp}: {e}")
+
+            # Cascade delete visual assets and visual session
+            conn.execute("DELETE FROM visual_assets WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM visual_sessions WHERE session_id = ?", (session_id,))
             conn.commit()
             return True
@@ -213,8 +229,21 @@ class ImageStudioDB:
             conn.commit()
             return bool(new_val)
 
-    def delete_asset(self, asset_id: int) -> bool:
+    def delete_asset(self, asset_id: int, delete_file: bool = True) -> bool:
         with self._get_connection() as conn:
+            if delete_file:
+                cursor = conn.execute("SELECT filepath FROM visual_assets WHERE id = ?", (asset_id,))
+                row = cursor.fetchone()
+                if row:
+                    fp = row["filepath"]
+                    if fp and not fp.startswith("data:"):
+                        try:
+                            p = Path(fp)
+                            if p.exists() and p.is_file():
+                                p.unlink(missing_ok=True)
+                        except Exception as e:
+                            logger.warning(f"Could not delete physical image file {fp}: {e}")
+
             conn.execute("DELETE FROM visual_assets WHERE id = ?", (asset_id,))
             conn.commit()
             return True

@@ -37,7 +37,8 @@ import {
   Image as ImageIcon,
   Grid,
   Edit3,
-  Undo
+  Undo,
+  MoreVertical
 } from 'lucide-react'
 import axios from 'axios'
 import useJarvisStore from '../store/useJarvisStore'
@@ -53,6 +54,7 @@ export default function ImageGenView() {
   // ── Session State (Grok Imagine Multi-Session Rail) ───────────────────
   const [visualSessions, setVisualSessions] = useState([])
   const [activeVisualSessionId, setActiveVisualSessionId] = useState(null)
+  const [openSessionMenuId, setOpenSessionMenuId] = useState(null)
 
   // ── Common Models State ───────────────────────────────────────────────
   const [availableModels, setAvailableModels] = useState([])
@@ -73,6 +75,8 @@ export default function ImageGenView() {
   // ── Edit Canvas State ─────────────────────────────────────────────────
   const [editPrompt, setEditPrompt] = useState('')
   const [initImage, setInitImage] = useState(null) // base64 or URL
+  const [activeAssetId, setActiveAssetId] = useState(null)
+  const [showImageActionMenu, setShowImageActionMenu] = useState(false)
   const [maskImage, setMaskImage] = useState(null)
   const [denoisingStrength, setDenoisingStrength] = useState(0.65)
   const [isEditing, setIsEditing] = useState(false)
@@ -172,6 +176,9 @@ export default function ImageGenView() {
         setCanvasVersions(formatted)
         if (formatted.length > 0) {
           setInitImage(formatted[formatted.length - 1].image)
+          setActiveAssetId(formatted[formatted.length - 1].id)
+        } else {
+          setActiveAssetId(null)
         }
       }
     } catch (e) {
@@ -193,6 +200,52 @@ export default function ImageGenView() {
       setMaskImage(null)
     } catch (e) {
       console.error('Failed to create visual session', e)
+    }
+  }
+
+  const handleDeleteVisualSession = async (e, sid) => {
+    e.stopPropagation()
+    setOpenSessionMenuId(null)
+    try {
+      await axios.delete(`${API_BASE}/api/image/sessions/${sid}`)
+      const updated = visualSessions.filter((s) => s.session_id !== sid)
+      setVisualSessions(updated)
+      if (activeVisualSessionId === sid) {
+        if (updated.length > 0) {
+          loadVisualSession(updated[0].session_id)
+        } else {
+          setActiveVisualSessionId(null)
+          setCanvasVersions([])
+          setInitImage(null)
+          setActiveAssetId(null)
+        }
+      }
+      fetchLibrary()
+    } catch (err) {
+      console.error('Failed to delete visual session', err)
+    }
+  }
+
+  const handleDeleteAsset = async (assetId) => {
+    try {
+      await axios.delete(`${API_BASE}/api/image/library/${assetId}`)
+      setShowImageActionMenu(false)
+      // Remove from canvas versions if present
+      const remaining = canvasVersions.filter((v) => v.id !== assetId)
+      setCanvasVersions(remaining)
+      if (activeAssetId === assetId || !remaining.length) {
+        if (remaining.length > 0) {
+          setInitImage(remaining[remaining.length - 1].image)
+          setActiveAssetId(remaining[remaining.length - 1].id)
+        } else {
+          setInitImage(null)
+          setActiveAssetId(null)
+        }
+      }
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Failed to delete visual asset', err)
     }
   }
 
@@ -227,6 +280,7 @@ export default function ImageGenView() {
       })
       const uploadedDataUrl = `data:image/png;base64,${res.data.image_base64}`
       setInitImage(uploadedDataUrl)
+      setActiveAssetId(res.data.id)
       setCanvasVersions((prev) => [
         ...prev,
         { id: res.data.id, image: uploadedDataUrl, prompt: file.name, type: 'uploaded' }
@@ -257,11 +311,13 @@ export default function ImageGenView() {
       })
 
       const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      const newAssetId = res.data.id || Date.now()
       setCanvasVersions((prev) => [
         ...prev,
-        { id: res.data.id || Date.now(), image: dataUrl, prompt: generatePrompt, type: 'generated' }
+        { id: newAssetId, image: dataUrl, prompt: generatePrompt, type: 'generated' }
       ])
       setInitImage(dataUrl)
+      setActiveAssetId(newAssetId)
       fetchVisualSessions()
       fetchLibrary()
     } catch (err) {
@@ -293,6 +349,7 @@ export default function ImageGenView() {
         { id: res.data.id, image: dataUrl, prompt: editPrompt, type: 'edited' }
       ])
       setInitImage(dataUrl)
+      setActiveAssetId(res.data.id)
       setMaskImage(null)
       fetchVisualSessions()
       fetchLibrary()
@@ -413,13 +470,42 @@ export default function ImageGenView() {
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-200 truncate">
+                  <div className="flex items-center justify-between relative">
+                    <span className="text-xs font-medium text-slate-200 truncate pr-2">
                       {sess.title || 'Visual Session'}
                     </span>
-                    <span className="text-[10px] text-cyan-400/70 font-mono">
-                      {sess.asset_count || 0} imgs
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] text-cyan-400/70 font-mono">
+                        {sess.asset_count || 0} imgs
+                      </span>
+                      {/* 3-dots Context Menu Button (matching reference image) */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenSessionMenuId(openSessionMenuId === sess.session_id ? null : sess.session_id)
+                        }}
+                        className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                        title="Session options"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Popover Context Menu */}
+                    {openSessionMenuId === sess.session_id && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-0 top-7 w-44 bg-[#0B1626] border border-cyan-500/30 rounded-xl py-1 shadow-2xl z-30 font-sans text-xs animate-fade-in"
+                      >
+                        <div
+                          onClick={(e) => handleDeleteVisualSession(e, sess.session_id)}
+                          className="px-3 py-2 flex items-center justify-between text-red-400 hover:bg-red-500/15 cursor-pointer transition-colors"
+                        >
+                          <span className="font-medium">Delete</span>
+                          <span className="text-[10px] font-mono text-red-400/60">D</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -502,30 +588,43 @@ export default function ImageGenView() {
               {initImage ? (
                 <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[70vh] group">
                   <img src={initImage} alt="Generated" className="object-contain max-h-[70vh] rounded-2xl" />
-                  <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleSendToChat(initImage)}
-                      className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
-                      title="Chat with Image"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setActiveSubTab('edit')}
-                      className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
-                      title="Edit this Image"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <a
-                      href={initImage}
-                      download="jarvis_imagine.png"
-                      className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
-                      title="Download"
-                    >
-                      <Download className="w-4 h-4" />
-                    </a>
-                  </div>
+                    <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleSendToChat(initImage)}
+                        className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
+                        title="Chat with Image"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setActiveSubTab('edit')}
+                        className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
+                        title="Edit this Image"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <a
+                        href={initImage}
+                        download="jarvis_imagine.png"
+                        className="p-2 rounded-lg bg-black/60 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30"
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                      <button
+                        onClick={() => {
+                          if (activeAssetId) {
+                            handleDeleteAsset(activeAssetId)
+                          } else {
+                            setInitImage(null)
+                          }
+                        }}
+                        className="p-2 rounded-lg bg-red-950/70 backdrop-blur text-red-300 hover:bg-red-900 border border-red-500/40"
+                        title="Delete Image"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center text-center p-8 max-w-md border border-dashed border-cyan-500/20 rounded-2xl">
@@ -677,8 +776,60 @@ export default function ImageGenView() {
               )}
 
               {initImage ? (
-                <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[65vh]">
+                <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[65vh] group">
                   <img src={initImage} alt="Base for edit" className="object-contain max-h-[65vh] rounded-2xl" />
+                  
+                  {/* Floating Action Menu Button (matching reference image) */}
+                  <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                    <button
+                      onClick={() => setShowImageActionMenu(!showImageActionMenu)}
+                      className="p-2 rounded-lg bg-black/70 backdrop-blur text-cyan-300 hover:bg-black/90 border border-cyan-500/30 shadow-lg"
+                      title="More Options"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    {/* Popover Action Menu */}
+                    {showImageActionMenu && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-0 top-10 w-48 bg-[#0B1626]/95 border border-cyan-500/30 rounded-xl py-1.5 shadow-2xl z-30 font-sans text-xs backdrop-blur-md animate-fade-in"
+                      >
+                        <button
+                          onClick={() => handleSendToChat(initImage)}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-slate-300 hover:bg-cyan-500/15 hover:text-cyan-200 transition-colors text-left"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Chat with Image</span>
+                        </button>
+                        <a
+                          href={initImage}
+                          download="jarvis_edited.png"
+                          className="w-full px-3 py-2 flex items-center gap-2 text-slate-300 hover:bg-cyan-500/15 hover:text-cyan-200 transition-colors text-left"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download</span>
+                        </a>
+                        <div className="my-1 border-t border-cyan-500/20" />
+                        <button
+                          onClick={() => {
+                            if (activeAssetId) {
+                              handleDeleteAsset(activeAssetId)
+                            } else {
+                              // If no ID (pure local base64), just clear canvas
+                              setInitImage(null)
+                              setCanvasVersions([])
+                              setShowImageActionMenu(false)
+                            }
+                          }}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-red-400 hover:bg-red-500/15 transition-colors text-left"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="font-medium">Delete image</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Overlay Canvas for Mask Inpainting */}
                   {isMaskingMode && (
                     <canvas
@@ -851,6 +1002,7 @@ export default function ImageGenView() {
                           <button
                             onClick={() => {
                               setInitImage(imgUrl)
+                              setActiveAssetId(asset.id)
                               setActiveSubTab('edit')
                             }}
                             className="p-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40"
@@ -858,14 +1010,26 @@ export default function ImageGenView() {
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
-                          <a
-                            href={imgUrl}
-                            download={`jarvis_asset_${asset.id}.png`}
-                            className="p-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
-                            title="Download"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
+                          <div className="flex items-center gap-1">
+                            <a
+                              href={imgUrl}
+                              download={`jarvis_asset_${asset.id}.png`}
+                              className="p-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+                              title="Download"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteAsset(asset.id)
+                              }}
+                              className="p-1 rounded bg-red-950/70 text-red-300 hover:bg-red-900 border border-red-500/30"
+                              title="Delete permanently"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
