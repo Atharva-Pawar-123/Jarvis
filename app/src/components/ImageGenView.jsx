@@ -58,6 +58,7 @@ export default function ImageGenView() {
   const [availableModels, setAvailableModels] = useState([])
   const [selectedModel, setSelectedModel] = useState('local')
   const [showModelMenu, setShowModelMenu] = useState(false)
+  const [showEditModelMenu, setShowEditModelMenu] = useState(false)
   const [showAspectMenu, setShowAspectMenu] = useState(false)
   const [aspectRatio, setAspectRatio] = useState('1:1')
   const [width, setWidth] = useState(512)
@@ -75,6 +76,7 @@ export default function ImageGenView() {
   const [maskImage, setMaskImage] = useState(null)
   const [denoisingStrength, setDenoisingStrength] = useState(0.65)
   const [isEditing, setIsEditing] = useState(false)
+  const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
   const [canvasVersions, setCanvasVersions] = useState([]) // [ { id, image, prompt } ]
@@ -89,7 +91,26 @@ export default function ImageGenView() {
   const fileInputRef = useRef(null)
   const canvasRef = useRef(null)
   const modelMenuRef = useRef(null)
+  const editModelMenuRef = useRef(null)
+  const aspectMenuRef = useRef(null)
   const isDrawingRef = useRef(false)
+
+  // ── Close popups when clicking outside ────────────────────────────────
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
+        setShowModelMenu(false)
+      }
+      if (editModelMenuRef.current && !editModelMenuRef.current.contains(e.target)) {
+        setShowEditModelMenu(false)
+      }
+      if (aspectMenuRef.current && !aspectMenuRef.current.contains(e.target)) {
+        setShowAspectMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // ── Aspect Ratio Options ──────────────────────────────────────────────
   const aspectRatios = [
@@ -253,6 +274,7 @@ export default function ImageGenView() {
   const handleEdit = async () => {
     if (!editPrompt.trim() || !initImage || isEditing) return
     setIsEditing(true)
+    setEditError('')
 
     try {
       const res = await axios.post(`${API_BASE}/api/image/edit`, {
@@ -276,6 +298,8 @@ export default function ImageGenView() {
       fetchLibrary()
     } catch (err) {
       console.error('Edit error', err)
+      const detail = err.response?.data?.detail || 'SD Forge engine is offline or loading. Please start SD Forge on port 7860.'
+      setEditError(detail)
     }
     setIsEditing(false)
   }
@@ -543,7 +567,7 @@ export default function ImageGenView() {
                     </button>
 
                     {/* Model Picker Pill */}
-                    <div className="relative">
+                    <div className="relative" ref={modelMenuRef}>
                       <button
                         onClick={() => setShowModelMenu(!showModelMenu)}
                         className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
@@ -571,7 +595,7 @@ export default function ImageGenView() {
                     </div>
 
                     {/* Aspect Ratio Pill */}
-                    <div className="relative">
+                    <div className="relative" ref={aspectMenuRef}>
                       <button
                         onClick={() => setShowAspectMenu(!showAspectMenu)}
                         className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
@@ -636,6 +660,22 @@ export default function ImageGenView() {
 
             {/* Central Canvas Viewport */}
             <div className="flex-1 w-full max-w-4xl flex items-center justify-center relative mb-24">
+              {/* Error Banner if SD Forge is offline */}
+              {editError && (
+                <div className="absolute top-4 inset-x-8 bg-red-950/80 border border-red-500/40 text-red-200 px-4 py-2.5 rounded-xl backdrop-blur-md z-30 flex items-center justify-between text-xs font-mono shadow-xl animate-fade-in">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
+                    <span>{editError}</span>
+                  </div>
+                  <button
+                    onClick={() => setEditError('')}
+                    className="p-1 rounded hover:bg-red-900/60 text-red-400"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {initImage ? (
                 <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[65vh]">
                   <img src={initImage} alt="Base for edit" className="object-contain max-h-[65vh] rounded-2xl" />
@@ -684,6 +724,34 @@ export default function ImageGenView() {
                 {/* Edit Controls Pills */}
                 <div className="flex items-center justify-between pt-1 border-t border-cyan-500/15 text-xs">
                   <div className="flex items-center gap-2">
+                    {/* Model Picker Pill in Edit Mode */}
+                    <div className="relative" ref={editModelMenuRef}>
+                      <button
+                        onClick={() => setShowEditModelMenu(!showEditModelMenu)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
+                      >
+                        <Cpu className="w-3 h-3" />
+                        {availableModels.find((m) => m.id === selectedModel)?.name || 'Local SD'}
+                      </button>
+                      {showEditModelMenu && (
+                        <div className="absolute bottom-8 left-0 w-64 bg-slate-900 border border-cyan-500/30 rounded-xl p-1 shadow-2xl z-30">
+                          {availableModels.map((m) => (
+                            <div
+                              key={m.id}
+                              onClick={() => {
+                                setSelectedModel(m.id)
+                                setShowEditModelMenu(false)
+                              }}
+                              className="p-2 rounded-lg hover:bg-cyan-500/15 cursor-pointer text-xs"
+                            >
+                              <div className="font-semibold text-slate-200">{m.name}</div>
+                              <div className="text-[10px] text-slate-400">{m.category}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Denoise Strength Slider */}
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px]">
                       <span>Denoise: {denoisingStrength}</span>

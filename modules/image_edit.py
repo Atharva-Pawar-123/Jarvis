@@ -26,6 +26,31 @@ class ImageEditEngine:
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
+    def _ensure_forge_running(self) -> bool:
+        """Checks if Forge API is responding; if not, launches it in the background."""
+        import subprocess
+        try:
+            r = requests.get(f"{self.local_url}/sdapi/v1/options", timeout=1.5)
+            if r.status_code == 200:
+                return True
+        except Exception:
+            pass
+
+        forge_bat = Path(config.BASE_DIR) / "tools" / "forge" / "start_forge_api.bat"
+        if forge_bat.exists():
+            try:
+                logger.info("Local SD Forge engine not detected. Launching background instance...")
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(forge_bat)],
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                return True
+            except Exception as e:
+                logger.warning(f"Could not auto-start Forge: {e}")
+        return False
+
     def save_uploaded_image(self, file_bytes: bytes, filename: str) -> Tuple[str, str, int, int]:
         """
         Validates, strips unsafe EXIF, converts to standard sRGB, saves to disk,
@@ -122,6 +147,7 @@ class ImageEditEngine:
 
         headers = {"Content-Type": "application/json"}
         try:
+            self._ensure_forge_running()
             res = requests.post(
                 f"{self.local_url}/sdapi/v1/img2img",
                 json=payload,
