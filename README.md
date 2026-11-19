@@ -11,6 +11,8 @@ With the completion of **V2.4 Image Studio Pro & Multi-Session Visual Suite**, J
 - **Image Studio Pro (Grok Imagine Architecture)**: Unified 3-in-1 creative studio featuring text-to-image generation, a dedicated **Edit Canvas** for instruction-guided img2img & inpainting, and an asset **Library** gallery.
 - **Direct Computer Storage Upload**: Upload any `.png`, `.jpg`, or `.webp` file from local storage via drag-and-drop or file picker with automatic EXIF stripping and sRGB sanitization.
 - **Grok-Style Visual Session Rail**: Independent visual sessions with 3-image miniature preview cards, allowing users to switch between editing canvases without losing work.
+- **Complete Zero-Trace Deletion System**: Full user control to delete any individual conversation, Imagine visual session, or image asset. Permanent file unlinking (`Path.unlink()`) ensures zero residue remains on disk.
+- **Edit Canvas Model Selector & Visual Alerts**: Dynamic checkpoint selector in Edit Canvas and automated SD-Forge background launcher with informative error banners.
 - **Persistent Asset Database (`image_studio.db`)**: Full SQLite catalog maintaining version lineage (e.g., Upload &rarr; Edit 1 &rarr; Edit 2), favorite flags, prompt metadata, and dimensions.
 - **Session & Memory Persistence on Reboot**: Resolved previous session wipe bug by synchronizing `activeSessionId` across `localStorage` and SQLite, ensuring conversations and visual assets survive restarts.
 - **Next-Gen Command Center HUD**: Futuristic military/sci-fi command dashboard with live clock, central holographic 3D particle orb, agent status matrix, mission timeline, live intelligence feed, hardware gauges, constellation memory insights, and one-click voice dock.
@@ -162,6 +164,7 @@ pytest -q tests/v2/
 | **🎨 Image Studio Pro** | 3-in-1 visual suite: Text-to-Image, Edit Canvas (img2img/inpaint), and Masonry Library | Click **Image Studio** in sidebar |
 | **📤 Storage Image Upload** | Upload images from your computer for editing or chatting | Click **Upload Image** or drag-and-drop onto canvas |
 | **🖼️ Grok Imagine Sessions** | Multi-session rail with 3-image preview cards & independent states | Left rail in Image Studio |
+| **🗑️ Zero-Trace Deletion** | Context menu deletion for conversations, sessions, and individual images with physical file unlinking | Click 3-dots `...` menu on chats, session cards, or image previews |
 | **💬 Conversations & Chat** | Full-context conversational reasoning with ChatGPT/Claude-style streaming | Click **Conversations** tab in sidebar |
 | **🎙️ Voice Interface** | Wake-word ("Hey Jarvis") + Arc Reactor push-to-talk orb + British TTS | Speak aloud or click microphone button |
 | **🧠 4-Tier Memory** | Persistent Working, Episodic, Semantic RAG, and Procedural habits | Click **Memory** in sidebar |
