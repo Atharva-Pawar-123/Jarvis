@@ -321,6 +321,11 @@ export default function ImageGenView() {
       content: 'I have attached an image from Image Studio for inspection.',
       timestamp: new Date().toISOString()
     })
+    addMessage({
+      role: 'jarvis',
+      content: `I have received the image from your studio session, sir. What would you like me to analyze or assist you with regarding this image?`,
+      timestamp: new Date().toISOString()
+    })
     setActiveTab('chat')
   }
 
@@ -566,13 +571,34 @@ export default function ImageGenView() {
                     </div>
 
                     {/* Aspect Ratio Pill */}
-                    <button
-                      onClick={() => setShowAspectMenu(!showAspectMenu)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
-                    >
-                      <Crop className="w-3 h-3" />
-                      {aspectRatio}
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowAspectMenu(!showAspectMenu)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 border border-cyan-500/20 text-cyan-300 font-mono text-[11px] flex items-center gap-1.5"
+                      >
+                        <Crop className="w-3 h-3" />
+                        {aspectRatio}
+                      </button>
+                      {showAspectMenu && (
+                        <div className="absolute bottom-8 left-0 w-44 bg-slate-900 border border-cyan-500/30 rounded-xl p-1 shadow-2xl z-30">
+                          {aspectRatios.map((r) => (
+                            <div
+                              key={r.id}
+                              onClick={() => {
+                                setAspectRatio(r.id)
+                                setWidth(r.sd[0])
+                                setHeight(r.sd[1])
+                                setShowAspectMenu(false)
+                              }}
+                              className="p-2 rounded-lg hover:bg-cyan-500/15 cursor-pointer text-xs flex items-center justify-between"
+                            >
+                              <span className="text-slate-200">{r.label}</span>
+                              <span className="text-[10px] text-cyan-400 font-mono">{r.sd[0]}x{r.sd[1]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <button

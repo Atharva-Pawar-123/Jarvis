@@ -109,6 +109,17 @@ class ImageEditEngine:
             payload["inpaint_full_res"] = True
             payload["inpaint_full_res_padding"] = 32
 
+        # Model switching if specific checkpoint requested
+        if model_checkpoint:
+            try:
+                requests.post(
+                    f"{self.local_url}/sdapi/v1/options",
+                    json={"sd_model_checkpoint": model_checkpoint},
+                    timeout=30
+                )
+            except Exception as e:
+                logger.warning(f"Failed to switch model checkpoint for img2img: {e}")
+
         headers = {"Content-Type": "application/json"}
         try:
             res = requests.post(
