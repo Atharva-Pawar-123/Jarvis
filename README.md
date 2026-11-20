@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V2.4.9)
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.0.0)
 
 ---
 
@@ -7,8 +7,9 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the completion of **V2.4 Image Studio Pro & Multi-Session Visual Suite (Stabilized V2.4.9)**, JARVIS delivers an enterprise-grade, self-correcting desktop intelligence platform:
-- **Image Studio Pro (Grok Imagine Architecture)**: Unified 3-in-1 creative studio featuring text-to-image generation, a dedicated **Edit Canvas** for instruction-guided img2img & inpainting, and an asset **Library** gallery.
+With the rollout of **V3.0.0 Imagine Creative Suite & Local Video Studio**, JARVIS delivers an enterprise-grade desktop creative and intelligence platform:
+- **Imagine Video Studio (V3.0 Motion Engine)**: Calibrated for 6GB consumer GPUs, synthesizing fluid cinematic camera motion clips (zoom in, zoom out, pan, drift) from keyframes into MP4/WEBM with an interactive looping preview player and direct downloads.
+- **Image Studio Pro (Grok Imagine Architecture)**: Unified creative studio featuring text-to-image generation, a dedicated **Edit Canvas** for instruction-guided img2img & inpainting, and an asset **Library** gallery.
 - **Direct Computer Storage Upload**: Upload any `.png`, `.jpg`, or `.webp` file from local storage via drag-and-drop or file picker with 25MB payload guard, automatic EXIF orientation stripping, and sRGB sanitization.
 - **Dedicated Inpainting & ControlNet IP2P Pipelines**: True split model execution routing ControlNet models (`control_v11e_sd15_ip2p_fp16`, `control_v11p_sd15_inpaint_fp16`) through Forge `alwayson_scripts` and inpainting checkpoints through `/sdapi/v1/options`.
 - **Multi-Reference Editing Deck (Up to 5 Reference Images)**: Dynamic reference image dock supporting simultaneous multi-style and composition conditioning dispatched to local ControlNet units.
