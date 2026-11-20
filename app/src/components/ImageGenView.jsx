@@ -87,6 +87,7 @@ export default function ImageGenView() {
   const [isEditing, setIsEditing] = useState(false)
   const [isUpscaling, setIsUpscaling] = useState(false)
   const [isSegmenting, setIsSegmenting] = useState(false)
+  const [isRemovingBg, setIsRemovingBg] = useState(false)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
@@ -485,6 +486,36 @@ export default function ImageGenView() {
       setEditError(detail)
     }
     setIsSegmenting(false)
+  }
+
+  // ── Background Removal Handler (Transparent PNG) ──────────────────────
+  const handleRemoveBg = async () => {
+    if (!initImage || isRemovingBg) return
+    setIsRemovingBg(true)
+    setShowImageActionMenu(false)
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/remove-bg`, {
+        image: initImage,
+        session_id: activeVisualSessionId,
+        parent_asset_id: activeAssetId
+      })
+
+      const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id, image: dataUrl, prompt: 'Removed Background (Isolated Subject)', type: 'edited' }
+      ])
+      setInitImage(dataUrl)
+      setActiveAssetId(res.data.id)
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Remove background error', err)
+      const detail = err.response?.data?.detail || 'Background removal failed.'
+      setEditError(detail)
+    }
+    setIsRemovingBg(false)
   }
 
   // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
@@ -988,6 +1019,14 @@ export default function ImageGenView() {
                         >
                           {isUpscaling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Maximize2 className="w-3.5 h-3.5" />}
                           <span>Upscale 2x (ESRGAN)</span>
+                        </button>
+                        <button
+                          onClick={handleRemoveBg}
+                          disabled={isRemovingBg}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-emerald-300 hover:bg-emerald-500/15 transition-colors text-left disabled:opacity-40"
+                        >
+                          {isRemovingBg ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                          <span>Remove Background</span>
                         </button>
                         <a
                           href={initImage}

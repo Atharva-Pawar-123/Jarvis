@@ -1157,6 +1157,58 @@ async def segment_image_api(
     }
 
 
+@app.post("/api/image/remove-bg")
+async def remove_background_api(
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_edit or not rt.image_studio_db:
+        raise HTTPException(500, "Image Studio engine not initialized.")
+
+    image_b64 = payload.get("image")
+    if not image_b64:
+        raise HTTPException(400, "No image provided for background removal.")
+
+    session_id = payload.get("session_id")
+    parent_asset_id = payload.get("parent_asset_id")
+
+    rgba_bytes = await asyncio.to_thread(
+        rt.image_edit.remove_background,
+        image_b64
+    )
+
+    if not rgba_bytes:
+        raise HTTPException(500, "Background removal processing failed.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"rembg_{timestamp}.png"
+    filepath = rt.image_edit.save_dir / filename
+    try:
+        with open(filepath, "wb") as f:
+            f.write(rgba_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to save transparent PNG: {e}")
+
+    b64_str = base64.b64encode(rgba_bytes).decode("utf-8")
+
+    asset = rt.image_studio_db.add_asset(
+        asset_type="edited",
+        filepath=str(filepath),
+        session_id=session_id,
+        prompt="Isolated Subject (Transparent Background)",
+        model="tool:remove_background",
+        parent_asset_id=parent_asset_id
+    )
+
+    return {
+        "id": asset["id"],
+        "image_base64": b64_str,
+        "filepath": str(filepath),
+        "source": "Local Background Removal",
+        "parent_asset_id": parent_asset_id
+    }
+
+
 @app.get("/api/image/library")
 async def get_image_library(
     type: Optional[str] = "all",

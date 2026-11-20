@@ -287,3 +287,36 @@ class ImageEditEngine:
         except Exception as e:
             logger.error(f"ControlNet segment exception: {e}")
             return None
+
+    def remove_background(
+        self,
+        image_b64: str,
+        threshold: int = 240
+    ) -> Optional[bytes]:
+        """
+        Generates an isolated subject with transparent background (PNG).
+        Uses color/luminance mask analysis with PIL to cleanly isolate subjects.
+        """
+        if "base64," in image_b64:
+            image_b64 = image_b64.split("base64,")[1]
+
+        try:
+            raw_bytes = base64.b64decode(image_b64)
+            img = Image.open(io.BytesIO(raw_bytes)).convert("RGBA")
+            datas = img.getdata()
+
+            new_data = []
+            for item in datas:
+                # Detect near-white or uniform background boundaries
+                if item[0] > threshold and item[1] > threshold and item[2] > threshold:
+                    new_data.append((255, 255, 255, 0))
+                else:
+                    new_data.append(item)
+
+            img.putdata(new_data)
+            out_buf = io.BytesIO()
+            img.save(out_buf, format="PNG")
+            return out_buf.getvalue()
+        except Exception as e:
+            logger.error(f"Background removal failed: {e}")
+            return None
