@@ -143,3 +143,33 @@ def test_session_workspace_state_persistence(temp_studio_db):
     assert saved_state["selectedEditModel"] == "local:Realistic_Vision_V5.1_Inpaint"
 
 
+def test_gpu_scheduler_media_queue():
+    from modules.gpu_scheduler import GPUScheduler
+    scheduler = GPUScheduler()
+
+    # Enqueue two media jobs
+    job1_id = scheduler.register_media_job("inpainting", {"prompt": "Cyberpunk city"})
+    job2_id = scheduler.register_media_job("upscale", {"scale": 2.0})
+
+    assert job1_id.startswith("media_")
+    assert job2_id.startswith("media_")
+
+    snapshot = scheduler.get_queue_snapshot()
+    assert snapshot["queued_count"] == 2
+    assert snapshot["total_jobs"] == 2
+
+    # Transition job 1 to running
+    scheduler.update_job_status(job1_id, "running", progress=0.25)
+    assert scheduler.active_job_id == job1_id
+    assert scheduler.get_job_status(job1_id)["progress"] == 0.25
+
+    # Complete job 1
+    scheduler.update_job_status(job1_id, "completed", progress=1.0)
+    assert scheduler.active_job_id is None
+    assert scheduler.get_job_status(job1_id)["status"] == "completed"
+
+    # Transition job 2
+    scheduler.update_job_status(job2_id, "running", progress=0.5)
+    assert scheduler.active_job_id == job2_id
+
+

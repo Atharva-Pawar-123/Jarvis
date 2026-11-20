@@ -1349,6 +1349,24 @@ async def outpaint_image_api(
     }
 
 
+# ── GPU & Media Task Queue Telemetry Endpoints ─────────────────────────
+@app.get("/api/gpu/queue")
+async def get_gpu_media_queue(rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.gpu_scheduler:
+        raise HTTPException(500, "GPU scheduler not initialized.")
+    return rt.gpu_scheduler.get_queue_snapshot()
+
+
+@app.get("/api/gpu/queue/{job_id}")
+async def get_media_job_status(job_id: str, rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.gpu_scheduler:
+        raise HTTPException(500, "GPU scheduler not initialized.")
+    status = rt.gpu_scheduler.get_job_status(job_id)
+    if not status:
+        raise HTTPException(404, "Media job ID not found.")
+    return status
+
+
 @app.get("/api/image/library")
 async def get_image_library(
     type: Optional[str] = "all",

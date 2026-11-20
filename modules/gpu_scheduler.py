@@ -27,6 +27,9 @@ class GPUScheduler:
         self.ollama_base = getattr(config, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         self._lock = asyncio.Lock()
         self.active_vram_consumer: str = "llm"  # 'llm' | 'forge' | 'vision'
+        self.media_queue = asyncio.Queue()
+        self.active_job_id: Optional[str] = None
+        self.jobs: dict = {}  # job_id -> {status, progress, error, result}
 
     async def prepare_for_image_gen(self):
         """Unload or park LLM models from GPU VRAM before firing Forge SD."""
@@ -91,4 +94,45 @@ class GPUScheduler:
             "vram_percent": 0.0,
             "gpu_temp_c": 0,
             "active_consumer": self.active_vram_consumer
+        }
+
+    def register_media_job(self, job_type: str, metadata: dict) -> str:
+        """Enqueues a new media task into the FIFO queue and returns its unique tracking ID."""
+        import uuid
+        job_id = f"media_{uuid.uuid4().hex[:8]}"
+        self.jobs[job_id] = {
+            "id": job_id,
+            "type": job_type,
+            "status": "queued",
+            "progress": 0.0,
+            "metadata": metadata,
+            "error": None
+        }
+        return job_id
+
+    def update_job_status(self, job_id: str, status: str, progress: float = 0.0, error: Optional[str] = None):
+        """Updates status and progress of a tracked media job."""
+        if job_id in self.jobs:
+            self.jobs[job_id]["status"] = status
+            self.jobs[job_id]["progress"] = progress
+            if error:
+                self.jobs[job_id]["error"] = error
+            if status == "running":
+                self.active_job_id = job_id
+            elif status in ("completed", "failed"):
+                if self.active_job_id == job_id:
+                    self.active_job_id = None
+
+    def get_job_status(self, job_id: str) -> Optional[dict]:
+        """Returns the current execution state of a media job."""
+        return self.jobs.get(job_id)
+
+    def get_queue_snapshot(self) -> dict:
+        """Returns full queue health, pending count, and active job details."""
+        pending = [j for j in self.jobs.values() if j["status"] == "queued"]
+        return {
+            "active_job_id": self.active_job_id,
+            "queued_count": len(pending),
+            "total_jobs": len(self.jobs),
+            "jobs": list(self.jobs.values())[-10:] # last 10 jobs
         }
