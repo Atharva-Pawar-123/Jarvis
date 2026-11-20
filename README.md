@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.0.0)
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.0.2)
 
 ---
 
@@ -7,8 +7,13 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the rollout of **V3.0.0 Imagine Creative Suite & Local Video Studio**, JARVIS delivers an enterprise-grade desktop creative and intelligence platform:
-- **Imagine Video Studio (V3.0 Motion Engine)**: Calibrated for 6GB consumer GPUs, synthesizing fluid cinematic camera motion clips (zoom in, zoom out, pan, drift) from keyframes into MP4/WEBM with an interactive looping preview player and direct downloads.
+With the rollout of **V3.0.2 Reliability & Engineering Quality Release**, JARVIS addresses critical implementation gaps identified during architectural reviews:
+- **Imagine Video Studio (V3.0 Motion Engine)**: Calibrated for 6GB consumer GPUs, synthesizing fluid cinematic camera motion clips (zoom in, zoom out, pan, drift) from keyframes into MP4/WEBM with exact filesystem path alignment and an interactive looping preview player.
+- **Dedicated Video Asset Library**: Full `<video>` element support in the Library gallery with live hover-to-play scrubbing, video type filtering (`video`), and one-click playback in the Imagine preview modal.
+- **True Foreground Segmentation**: Advanced OpenCV GrabCut foreground isolation with ControlNet ADE20K semantic fallback, replacing color-threshold heuristics for robust subject cutouts and background replacement.
+- **Durable SQLite Memory Queue (`memory_queue.sqlite`)**: True reboot-safe sequential task queue that recovers and resumes pending fact extraction jobs upon backend restart.
+- **Full Workspace State Reconstruction**: Multi-reference image deck, selected models, canvas settings, active tabs, and sliders are automatically persisted to SQLite per-session and restored cleanly.
+- **Standardized Absolute Database Paths**: Explicitly initializes all sqlite databases using `config.DATA_DIR`, guaranteeing database integrity regardless of execution directory.
 - **Image Studio Pro (Grok Imagine Architecture)**: Unified creative studio featuring text-to-image generation, a dedicated **Edit Canvas** for instruction-guided img2img & inpainting, and an asset **Library** gallery.
 - **Direct Computer Storage Upload**: Upload any `.png`, `.jpg`, or `.webp` file from local storage via drag-and-drop or file picker with 25MB payload guard, automatic EXIF orientation stripping, and sRGB sanitization.
 - **Dedicated Inpainting & ControlNet IP2P Pipelines**: True split model execution routing ControlNet models (`control_v11e_sd15_ip2p_fp16`, `control_v11p_sd15_inpaint_fp16`) through Forge `alwayson_scripts` and inpainting checkpoints through `/sdapi/v1/options`.
