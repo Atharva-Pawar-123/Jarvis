@@ -152,21 +152,43 @@ class ImageEditEngine:
         # Handle ControlNet units (IP2P, inpaint, or Multi-Reference conditioning)
         controlnet_units = []
 
+        # Helper to query available ControlNet models dynamically from Forge
+        available_cn_models = []
+        try:
+            cn_res = requests.get(f"{self.local_url}/controlnet/model_list", timeout=2)
+            if cn_res.status_code == 200:
+                available_cn_models = cn_res.json().get("model_list", [])
+        except Exception:
+            pass
+
+        def resolve_cn_model_name(pattern: str) -> str:
+            """Resolves exact Forge ControlNet model name with hash suffix if available."""
+            pattern_clean = pattern.lower().replace(".safetensors", "")
+            for m in available_cn_models:
+                if pattern_clean in m.lower():
+                    return m
+            # Fallback to direct pattern
+            return pattern
+
         if model_checkpoint and "controlnet:" in model_checkpoint:
-            cn_model_name = model_checkpoint.replace("controlnet:", "")
-            if "ip2p" in cn_model_name.lower():
+            cn_raw = model_checkpoint.replace("controlnet:", "")
+            if "ip2p" in cn_raw.lower():
                 cn_module = "none"
-            elif "inpaint" in cn_model_name.lower():
+                resolved_model = resolve_cn_model_name("control_v11e_sd15_ip2p_fp16")
+            elif "inpaint" in cn_raw.lower():
                 cn_module = "inpaint_only"
-            elif "openpose" in cn_model_name.lower():
+                resolved_model = resolve_cn_model_name("control_v11p_sd15_inpaint_fp16")
+            elif "openpose" in cn_raw.lower():
                 cn_module = "openpose_full"
+                resolved_model = resolve_cn_model_name("openpose")
             else:
                 cn_module = "none"
+                resolved_model = resolve_cn_model_name(cn_raw)
 
             controlnet_units.append({
                 "enabled": True,
                 "module": cn_module,
-                "model": cn_model_name,
+                "model": resolved_model,
                 "weight": 1.0,
                 "resize_mode": "Just Resize",
                 "control_mode": "Balanced",
@@ -186,11 +208,12 @@ class ImageEditEngine:
         if reference_images:
             for idx, ref_img in enumerate(reference_images[:5]):
                 clean_ref = ref_img.split("base64,")[1] if "base64," in ref_img else ref_img
+                ip2p_model = resolve_cn_model_name("control_v11e_sd15_ip2p_fp16") if "ip2p" in str(model_checkpoint) else "None"
                 controlnet_units.append({
                     "enabled": True,
                     "input_image": clean_ref,
                     "module": "none",
-                    "model": "control_v11e_sd15_ip2p_fp16" if "ip2p" in str(model_checkpoint) else "none",
+                    "model": ip2p_model,
                     "weight": 0.8,
                     "resize_mode": "Crop and Resize",
                     "control_mode": "Balanced",
@@ -198,7 +221,7 @@ class ImageEditEngine:
 
         if controlnet_units:
             payload["alwayson_scripts"] = {
-                "controlnet": {
+                "ControlNet": {
                     "args": controlnet_units
                 }
             }
