@@ -16,14 +16,18 @@ export default function HUDView() {
     uptime: '0s',
     session_count: 0,
     total_messages: 0,
+    media_active_job: null,
+    media_queued_count: 0,
+    media_total_jobs: 0
   })
   const [loading, setLoading] = useState(true)
 
   const fetchTelemetry = async () => {
     try {
-      const [sysRes, gpuRes] = await Promise.all([
+      const [sysRes, gpuRes, queueRes] = await Promise.all([
         axios.get('http://localhost:8080/api/system/status').catch(() => ({ data: {} })),
-        axios.get('http://localhost:8080/api/gpu/telemetry').catch(() => ({ data: {} }))
+        axios.get('http://localhost:8080/api/gpu/telemetry').catch(() => ({ data: {} })),
+        axios.get('http://localhost:8080/api/gpu/queue').catch(() => ({ data: {} }))
       ])
 
       setTelemetry({
@@ -37,7 +41,10 @@ export default function HUDView() {
         vram_used_mb: gpuRes.data.vram_used_mb || 0,
         vram_total_mb: gpuRes.data.vram_total_mb || 6144,
         gpu_temp_c: gpuRes.data.gpu_temp_c || 0,
-        active_consumer: gpuRes.data.active_consumer || 'llm'
+        active_consumer: gpuRes.data.active_consumer || 'llm',
+        media_active_job: queueRes.data.active_job_id || null,
+        media_queued_count: queueRes.data.queued_count || 0,
+        media_total_jobs: queueRes.data.total_jobs || 0
       })
     } catch (e) {
       console.error('HUD telemetry poll failed', e)
@@ -233,6 +240,33 @@ export default function HUDView() {
             </div>
           </div>
           <HardDrive size={24} style={{ color: 'var(--text-secondary)', opacity: 0.8 }} />
+        </div>
+      </div>
+
+      {/* GPU Media Queue Telemetry Card */}
+      <div className="p-4 rounded-xl border border-cyan-500/20 bg-[#0A182E]/60 backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-cyan-950/80 border border-cyan-500/30 text-cyan-400">
+            <Radio size={20} className={telemetry.media_active_job ? 'animate-pulse text-amber-400' : 'text-cyan-400'} />
+          </div>
+          <div>
+            <div className="text-xs font-mono text-cyan-300 font-semibold uppercase tracking-wider">
+              GPU Media Task Pipeline
+            </div>
+            <div className="text-xs text-slate-400 font-mono mt-0.5">
+              Active Job: <span className="text-slate-200 font-semibold">{telemetry.media_active_job || 'Idle (Standby)'}</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 text-xs font-mono">
+          <div className="px-3 py-1.5 rounded-lg bg-slate-900 border border-cyan-500/20">
+            <span className="text-slate-400 mr-2">Queued:</span>
+            <span className="text-cyan-300 font-bold">{telemetry.media_queued_count}</span>
+          </div>
+          <div className="px-3 py-1.5 rounded-lg bg-slate-900 border border-cyan-500/20">
+            <span className="text-slate-400 mr-2">Processed:</span>
+            <span className="text-emerald-300 font-bold">{telemetry.media_total_jobs}</span>
+          </div>
         </div>
       </div>
     </div>
