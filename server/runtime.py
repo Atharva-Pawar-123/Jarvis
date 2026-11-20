@@ -32,6 +32,7 @@ from modules.code_engine import CodeEngine
 from modules.image_gen import ImageGenerationEngine
 from modules.image_edit import ImageEditEngine
 from modules.image_studio_db import ImageStudioDB
+from modules.video_studio import VideoStudioEngine
 from modules.security.permission_engine import PermissionEngine, ActionCategory
 from modules.agent.tool_registry import (
     StructuredToolRegistry,
@@ -112,6 +113,7 @@ class JarvisRuntime:
     image_gen: Optional[ImageGenerationEngine] = None
     image_edit: Optional[ImageEditEngine] = None
     image_studio_db: Optional[ImageStudioDB] = None
+    video_studio: Optional[VideoStudioEngine] = None
 
     # ── Agent Layer ───────────────────────────────────────────────
     orchestrator: Optional[UnifiedAgentOrchestrator] = None
@@ -156,6 +158,7 @@ class JarvisRuntime:
             self.image_gen = ImageGenerationEngine()
             self.image_edit = ImageEditEngine()
             self.image_studio_db = ImageStudioDB()
+            self.video_studio = VideoStudioEngine()
         except Exception as e:
             logger.warning(f"Could not initialize ImageGenerationEngine / Studio: {e}")
 

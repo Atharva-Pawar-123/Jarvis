@@ -1367,6 +1367,81 @@ async def get_media_job_status(job_id: str, rt: JarvisRuntime = Depends(get_runt
     return status
 
 
+# ── Imagine Video Studio Endpoints (V3 Motion Synthesis) ───────────────
+@app.post("/api/video/generate")
+async def generate_motion_video_api(
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.video_studio:
+        raise HTTPException(500, "Video Studio engine not initialized.")
+
+    image_b64 = payload.get("image")
+    if not image_b64:
+        raise HTTPException(400, "Keyframe image is required for motion video generation.")
+
+    motion_type = payload.get("motion_type", "zoom_in")
+    duration = float(payload.get("duration", 2.0))
+    fps = int(payload.get("fps", 16))
+    session_id = payload.get("session_id")
+    parent_asset_id = payload.get("parent_asset_id")
+
+    # Enroll in GPU Media Job Queue
+    job_id = rt.gpu_scheduler.register_media_job("video_synthesis", {
+        "motion_type": motion_type,
+        "duration": duration,
+        "fps": fps
+    })
+    rt.gpu_scheduler.update_job_status(job_id, "running", progress=0.2)
+
+    try:
+        video_bytes = await asyncio.to_thread(
+            rt.video_studio.generate_motion_video,
+            image_b64,
+            motion_type,
+            duration,
+            fps
+        )
+    except Exception as e:
+        rt.gpu_scheduler.update_job_status(job_id, "failed", error=str(e))
+        raise HTTPException(500, f"Video generation failed: {e}")
+
+    if not video_bytes:
+        rt.gpu_scheduler.update_job_status(job_id, "failed", error="Synthesis returned empty buffer")
+        raise HTTPException(500, "Failed to synthesize motion video.")
+
+    rt.gpu_scheduler.update_job_status(job_id, "completed", progress=1.0)
+
+    b64_video = base64.b64encode(video_bytes).decode("utf-8")
+    data_uri = f"data:video/mp4;base64,{b64_video}"
+
+    # Also register in Studio DB if active
+    asset_id = None
+    if rt.image_studio_db:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        vid_path = rt.video_studio.video_dir / f"vid_{timestamp}.mp4"
+        asset = rt.image_studio_db.add_asset(
+            asset_type="edited",
+            filepath=str(vid_path),
+            session_id=session_id,
+            prompt=f"Motion Video ({motion_type}, {duration}s)",
+            model="video:motion_synthesizer",
+            parent_asset_id=parent_asset_id
+        )
+        asset_id = asset["id"]
+
+    return {
+        "id": asset_id,
+        "job_id": job_id,
+        "video_base64": b64_video,
+        "video_uri": data_uri,
+        "motion_type": motion_type,
+        "duration": duration,
+        "fps": fps,
+        "source": "Local Imagine Video Engine"
+    }
+
+
 @app.get("/api/image/library")
 async def get_image_library(
     type: Optional[str] = "all",

@@ -41,7 +41,9 @@ import {
   Redo,
   Eraser,
   Wand2,
-  MoreVertical
+  MoreVertical,
+  Film,
+  Play
 } from 'lucide-react'
 import axios from 'axios'
 import useJarvisStore from '../store/useJarvisStore'
@@ -90,6 +92,8 @@ export default function ImageGenView() {
   const [isRemovingBg, setIsRemovingBg] = useState(false)
   const [isReplacingBg, setIsReplacingBg] = useState(false)
   const [isOutpainting, setIsOutpainting] = useState(false)
+  const [isSynthesizingVideo, setIsSynthesizingVideo] = useState(false)
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null)
   const [referenceImages, setReferenceImages] = useState([]) // array of base64 strings (up to 5)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
@@ -595,6 +599,36 @@ export default function ImageGenView() {
       setEditError(detail)
     }
     setIsOutpainting(false)
+  }
+
+  // ── Imagine Video Motion Synthesis Handler (V3 Studio) ────────────────
+  const handleGenerateMotionVideo = async (motionType = 'zoom_in') => {
+    if (!initImage || isSynthesizingVideo) return
+    setIsSynthesizingVideo(true)
+    setShowImageActionMenu(false)
+    setGeneratedVideoUrl(null)
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/video/generate`, {
+        image: initImage,
+        motion_type: motionType,
+        duration: 2.0,
+        fps: 16,
+        session_id: activeVisualSessionId,
+        parent_asset_id: activeAssetId
+      })
+
+      if (res.data.video_uri) {
+        setGeneratedVideoUrl(res.data.video_uri)
+      }
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Video generation error', err)
+      const detail = err.response?.data?.detail || 'Motion video synthesis failed.'
+      setEditError(detail)
+    }
+    setIsSynthesizingVideo(false)
   }
 
   // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
@@ -1125,6 +1159,15 @@ export default function ImageGenView() {
                           {isOutpainting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Crop className="w-3.5 h-3.5" />}
                           <span>Outpaint (16:9)</span>
                         </button>
+                        <button
+                          onClick={() => handleGenerateMotionVideo('zoom_in')}
+                          disabled={isSynthesizingVideo}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-fuchsia-300 hover:bg-fuchsia-500/15 transition-colors text-left disabled:opacity-40"
+                          title="Generate fluid 2s cinematic camera motion video clip"
+                        >
+                          {isSynthesizingVideo ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
+                          <span>Create Motion Video</span>
+                        </button>
                         <a
                           href={initImage}
                           download="jarvis_edited.png"
@@ -1165,6 +1208,43 @@ export default function ImageGenView() {
                       onMouseMove={draw}
                       className="absolute inset-0 w-full h-full cursor-crosshair opacity-60 bg-red-500/10"
                     />
+                  )}
+
+                  {/* Motion Video Preview Modal / Player */}
+                  {generatedVideoUrl && (
+                    <div className="absolute inset-0 bg-black/90 backdrop-blur-md z-30 flex flex-col items-center justify-center p-4 rounded-xl">
+                      <div className="relative max-w-lg w-full flex flex-col items-center">
+                        <div className="flex items-center justify-between w-full mb-2">
+                          <span className="text-xs font-mono text-fuchsia-400 flex items-center gap-1.5">
+                            <Film className="w-3.5 h-3.5" />
+                            Motion Video Preview (V3 Imagine)
+                          </span>
+                          <button
+                            onClick={() => setGeneratedVideoUrl(null)}
+                            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <video
+                          src={generatedVideoUrl}
+                          controls
+                          autoPlay
+                          loop
+                          className="rounded-xl border border-fuchsia-500/40 shadow-2xl max-h-[400px] w-auto"
+                        />
+                        <div className="flex items-center gap-3 mt-3">
+                          <a
+                            href={generatedVideoUrl}
+                            download="jarvis_motion.mp4"
+                            className="px-4 py-1.5 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Download MP4
+                          </a>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               ) : (

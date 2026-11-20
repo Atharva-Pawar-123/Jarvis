@@ -173,3 +173,28 @@ def test_gpu_scheduler_media_queue():
     assert scheduler.active_job_id == job2_id
 
 
+def test_video_studio_motion_synthesis():
+    from modules.video_studio import VideoStudioEngine
+    import io
+    import base64
+    from PIL import Image
+
+    engine = VideoStudioEngine()
+    # Create simple 64x64 test image
+    test_img = Image.new("RGB", (64, 64), color=(0, 200, 255))
+    buf = io.BytesIO()
+    test_img.save(buf, format="PNG")
+    b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    # Generate a short 0.25s test video (4 frames at 16fps)
+    video_bytes = engine.generate_motion_video(
+        image_b64=b64_str,
+        motion_type="zoom_in",
+        duration_seconds=0.25,
+        fps=16
+    )
+
+    assert video_bytes is not None
+    assert len(video_bytes) > 0
+
+
