@@ -119,3 +119,27 @@ def test_foreign_key_and_cascade_behavior(temp_studio_db):
     assert remaining_assets[0]["id"] == asset2["id"]
     assert remaining_assets[0]["parent_asset_id"] is None
 
+
+def test_session_workspace_state_persistence(temp_studio_db):
+    sess = temp_studio_db.create_session("vis_ws_test", "Workspace State Test")
+    assert sess["session_id"] == "vis_ws_test"
+
+    # Save state
+    workspace_data = {
+        "editPrompt": "Add neon glow",
+        "denoisingStrength": 0.55,
+        "selectedEditModel": "local:Realistic_Vision_V5.1_Inpaint"
+    }
+    success = temp_studio_db.update_session_workspace_state("vis_ws_test", workspace_data)
+    assert success is True
+
+    # Retrieve and verify
+    reloaded = temp_studio_db.get_session("vis_ws_test")
+    assert reloaded is not None
+    import json
+    saved_state = json.loads(reloaded["workspace_state"])
+    assert saved_state["editPrompt"] == "Add neon glow"
+    assert saved_state["denoisingStrength"] == 0.55
+    assert saved_state["selectedEditModel"] == "local:Realistic_Vision_V5.1_Inpaint"
+
+

@@ -38,6 +38,8 @@ import {
   Grid,
   Edit3,
   Undo,
+  Redo,
+  Eraser,
   MoreVertical
 } from 'lucide-react'
 import axios from 'axios'
@@ -85,6 +87,9 @@ export default function ImageGenView() {
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
+  const [brushTool, setBrushTool] = useState('brush') // 'brush' | 'eraser'
+  const [maskHistory, setMaskHistory] = useState([])
+  const [maskRedoStack, setMaskRedoStack] = useState([])
   const [canvasVersions, setCanvasVersions] = useState([]) // [ { id, image, prompt } ]
 
   // ── Library Mode State ────────────────────────────────────────────────
@@ -199,10 +204,43 @@ export default function ImageGenView() {
           setActiveAssetId(null)
         }
       }
+
+      // Restore workspace state if saved
+      if (sess && sess.workspace_state) {
+        try {
+          const ws = typeof sess.workspace_state === 'string' ? JSON.parse(sess.workspace_state) : sess.workspace_state
+          if (ws.editPrompt !== undefined) setEditPrompt(ws.editPrompt)
+          if (ws.generatePrompt !== undefined) setGeneratePrompt(ws.generatePrompt)
+          if (ws.denoisingStrength !== undefined) setDenoisingStrength(ws.denoisingStrength)
+          if (ws.selectedEditModel) setSelectedEditModel(ws.selectedEditModel)
+          if (ws.selectedGenerateModel) setSelectedGenerateModel(ws.selectedGenerateModel)
+          if (ws.steps !== undefined) setSteps(ws.steps)
+          if (ws.brushSize !== undefined) setBrushSize(ws.brushSize)
+        } catch {
+          // ignore parsing error
+        }
+      }
     } catch (e) {
       console.warn('Failed to load visual session', e)
     }
   }
+
+  // Auto-sync active workspace state to backend with debounce
+  useEffect(() => {
+    if (!activeVisualSessionId) return
+    const timer = setTimeout(() => {
+      axios.patch(`${API_BASE}/api/image/sessions/${activeVisualSessionId}/state`, {
+        editPrompt,
+        generatePrompt,
+        denoisingStrength,
+        selectedEditModel,
+        selectedGenerateModel,
+        steps,
+        brushSize
+      }).catch(() => {})
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize])
 
   const handleCreateNewSession = async () => {
     try {
@@ -380,9 +418,14 @@ export default function ImageGenView() {
     setIsEditing(false)
   }
 
-  // ── Inpaint Mask Drawing Logic ────────────────────────────────────────
+  // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
   const startDrawing = (e) => {
     if (!isMaskingMode || !canvasRef.current) return
+    // Save current canvas snapshot to undo stack before starting stroke
+    const canvas = canvasRef.current
+    const snapshot = canvas.toDataURL('image/png')
+    setMaskHistory((prev) => [...prev.slice(-20), snapshot])
+    setMaskRedoStack([]) // clear redo on new stroke
     isDrawingRef.current = true
     draw(e)
   }
@@ -401,16 +444,65 @@ export default function ImageGenView() {
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
-    ctx.fillStyle = 'white'
-    ctx.beginPath()
-    ctx.arc(x, y, brushSize, 0, Math.PI * 2)
-    ctx.fill()
+    if (brushTool === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.beginPath()
+      ctx.arc(x, y, brushSize, 0, Math.PI * 2)
+      ctx.fill()
+    } else {
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.fillStyle = 'white'
+      ctx.beginPath()
+      ctx.arc(x, y, brushSize, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+
+  const handleUndoMask = () => {
+    if (!canvasRef.current || maskHistory.length === 0) return
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const currentSnapshot = canvas.toDataURL('image/png')
+    setMaskRedoStack((prev) => [...prev, currentSnapshot])
+
+    const previousSnapshot = maskHistory[maskHistory.length - 1]
+    setMaskHistory((prev) => prev.slice(0, -1))
+
+    const img = new Image()
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0)
+      setMaskImage(canvas.toDataURL('image/png'))
+    }
+    img.src = previousSnapshot
+  }
+
+  const handleRedoMask = () => {
+    if (!canvasRef.current || maskRedoStack.length === 0) return
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const currentSnapshot = canvas.toDataURL('image/png')
+    setMaskHistory((prev) => [...prev, currentSnapshot])
+
+    const nextSnapshot = maskRedoStack[maskRedoStack.length - 1]
+    setMaskRedoStack((prev) => prev.slice(0, -1))
+
+    const img = new Image()
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0)
+      setMaskImage(canvas.toDataURL('image/png'))
+    }
+    img.src = nextSnapshot
   }
 
   const clearMask = () => {
     if (!canvasRef.current) return
-    const ctx = canvasRef.current.getContext('2d')
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    setMaskHistory((prev) => [...prev.slice(-20), canvas.toDataURL('image/png')])
+    setMaskRedoStack([])
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
     setMaskImage(null)
   }
 
@@ -939,9 +1031,12 @@ export default function ImageGenView() {
                       />
                     </div>
 
-                    {/* Mask Brush Toggle */}
+                    {/* Mask Brush / Eraser Mode Toggle */}
                     <button
-                      onClick={() => setIsMaskingMode(!isMaskingMode)}
+                      onClick={() => {
+                        setIsMaskingMode(!isMaskingMode)
+                        if (!isMaskingMode) setBrushTool('brush')
+                      }}
                       className={`px-2.5 py-1 rounded-lg border font-mono text-[11px] flex items-center gap-1.5 transition-all ${
                         isMaskingMode
                           ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
@@ -953,12 +1048,51 @@ export default function ImageGenView() {
                     </button>
 
                     {isMaskingMode && (
-                      <button
-                        onClick={clearMask}
-                        className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 text-[11px] border border-red-500/30"
-                      >
-                        Clear Mask
-                      </button>
+                      <div className="flex items-center gap-1 bg-slate-950/60 p-0.5 rounded-lg border border-cyan-500/20">
+                        <button
+                          onClick={() => setBrushTool('brush')}
+                          className={`px-2 py-0.5 rounded text-[10px] flex items-center gap-1 transition-all ${
+                            brushTool === 'brush' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title="Draw Mask (White)"
+                        >
+                          <Paintbrush className="w-2.5 h-2.5" />
+                          Draw
+                        </button>
+                        <button
+                          onClick={() => setBrushTool('eraser')}
+                          className={`px-2 py-0.5 rounded text-[10px] flex items-center gap-1 transition-all ${
+                            brushTool === 'eraser' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title="Erase Mask"
+                        >
+                          <Eraser className="w-2.5 h-2.5" />
+                          Erase
+                        </button>
+                        <button
+                          onClick={handleUndoMask}
+                          disabled={maskHistory.length === 0}
+                          className="p-1 rounded text-slate-400 hover:text-cyan-300 disabled:opacity-30"
+                          title="Undo Stroke (Ctrl+Z)"
+                        >
+                          <Undo className="w-2.5 h-2.5" />
+                        </button>
+                        <button
+                          onClick={handleRedoMask}
+                          disabled={maskRedoStack.length === 0}
+                          className="p-1 rounded text-slate-400 hover:text-cyan-300 disabled:opacity-30"
+                          title="Redo Stroke"
+                        >
+                          <Redo className="w-2.5 h-2.5" />
+                        </button>
+                        <button
+                          onClick={clearMask}
+                          className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px] border border-red-500/30 hover:bg-red-500/30"
+                          title="Clear Mask"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     )}
                   </div>
 

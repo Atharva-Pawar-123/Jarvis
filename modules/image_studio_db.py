@@ -35,9 +35,15 @@ class ImageStudioDB:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     thumbnail_url TEXT DEFAULT '',
-                    mode TEXT DEFAULT 'generate'
+                    mode TEXT DEFAULT 'generate',
+                    workspace_state TEXT DEFAULT '{}'
                 )
             """)
+            # Migration check: add workspace_state column if missing in existing databases
+            try:
+                conn.execute("ALTER TABLE visual_sessions ADD COLUMN workspace_state TEXT DEFAULT '{}'")
+            except sqlite3.OperationalError:
+                pass # Already exists
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS visual_assets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +120,20 @@ class ImageStudioDB:
             """, (session_id,))
             sess["assets"] = [dict(a) for a in asset_cursor.fetchall()]
             return sess
+
+    def update_session_workspace_state(self, session_id: str, state_dict: Dict[str, Any]) -> bool:
+        """Persists current workspace parameters (selected model, prompts, denoise, steps, etc.)"""
+        import json
+        state_str = json.dumps(state_dict)
+        now = datetime.datetime.now().isoformat()
+        with self._get_connection() as conn:
+            conn.execute("""
+                UPDATE visual_sessions 
+                SET workspace_state = ?, updated_at = ?
+                WHERE session_id = ?
+            """, (state_str, now, session_id))
+            conn.commit()
+            return True
 
     def delete_session(self, session_id: str, delete_files: bool = True) -> bool:
         with self._get_connection() as conn:

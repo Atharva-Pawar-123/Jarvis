@@ -1016,6 +1016,18 @@ async def delete_visual_session(session_id: str, rt: JarvisRuntime = Depends(get
     return {"status": "deleted", "session_id": session_id}
 
 
+@app.patch("/api/image/sessions/{session_id}/state")
+async def update_session_state(
+    session_id: str,
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    success = rt.image_studio_db.update_session_workspace_state(session_id, payload)
+    return {"status": "updated" if success else "failed", "session_id": session_id}
+
+
 @app.get("/api/image/library")
 async def get_image_library(
     type: Optional[str] = "all",
