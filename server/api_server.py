@@ -697,18 +697,28 @@ async def list_image_models(mode: Optional[str] = None):
             is_inpaint = "inpaint" in title_lower or "inpainting" in title_lower or "ip2p" in title_lower
             if "flux" in title_lower:
                 category = "FLUX"
+                capabilities = ["text_to_image"]
+                vram_estimate = 6144
             elif "xl" in title_lower or "sdxl" in title_lower:
                 category = "SDXL"
+                capabilities = ["text_to_image", "image_to_image"]
+                vram_estimate = 5120
             elif is_inpaint:
                 category = "Inpainting"
+                capabilities = ["inpainting", "image_to_image"]
+                vram_estimate = 3584
             else:
                 category = "SD1.5"
+                capabilities = ["text_to_image", "image_to_image"]
+                vram_estimate = 3584
 
             models.append({
                 "id": f"local:{title}",
                 "name": title,
                 "source": "forge",
                 "category": category,
+                "capabilities": capabilities,
+                "vram_estimate_mb": vram_estimate,
                 "is_edit_model": is_inpaint,
                 "description": f"Dedicated Inpaint Model" if is_inpaint else f"Local GPU Checkpoint ({category}) on disk",
                 "default_steps": 4 if category == "FLUX" else 20,
@@ -724,18 +734,24 @@ async def list_image_models(mode: Optional[str] = None):
             title_lower = title.lower()
             if "ip2p" in title_lower:
                 name_display = "InstructPix2Pix (Instruction Edit)"
+                capabilities = ["instruction_edit", "image_to_image"]
             elif "inpaint" in title_lower:
                 name_display = "ControlNet Inpaint FP16 (Pixel Lock)"
+                capabilities = ["inpainting", "pixel_lock"]
             elif "openpose" in title_lower:
                 name_display = "ControlNet OpenPose (Pose Lock)"
+                capabilities = ["pose_lock"]
             else:
                 name_display = f"ControlNet {title}"
+                capabilities = ["controlnet_guided"]
 
             models.append({
                 "id": f"controlnet:{title}",
                 "name": name_display,
                 "source": "controlnet",
                 "category": "ControlNet",
+                "capabilities": capabilities,
+                "vram_estimate_mb": 4096,
                 "is_edit_model": True,
                 "description": "Guided instruction & feature-preserving edit engine",
                 "default_steps": 20,
@@ -1026,6 +1042,68 @@ async def update_session_state(
         raise HTTPException(500, "Studio DB not active")
     success = rt.image_studio_db.update_session_workspace_state(session_id, payload)
     return {"status": "updated" if success else "failed", "session_id": session_id}
+
+
+@app.post("/api/image/upscale")
+async def upscale_image_api(
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_edit or not rt.image_studio_db:
+        raise HTTPException(500, "Image Studio engine not initialized.")
+
+    image_b64 = payload.get("image")
+    if not image_b64:
+        raise HTTPException(400, "No image provided for upscaling.")
+
+    upscaler_name = payload.get("upscaler", "R-ESRGAN 4x+")
+    scale = float(payload.get("scale", 2.0))
+    session_id = payload.get("session_id")
+    parent_asset_id = payload.get("parent_asset_id")
+
+    # Park Ollama to free VRAM for hardware upscaler
+    try:
+        await rt.gpu_scheduler.prepare_for_image_gen()
+    except Exception as e:
+        logger.warning(f"GPU scheduler park failed: {e}")
+
+    upscaled_bytes = await asyncio.to_thread(
+        rt.image_edit.upscale_image,
+        image_b64,
+        upscaler_name,
+        scale
+    )
+
+    if not upscaled_bytes:
+        raise HTTPException(503, "Local hardware upscaling failed or SD Forge is offline.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"upscale_{timestamp}.png"
+    filepath = rt.image_edit.save_dir / filename
+    try:
+        with open(filepath, "wb") as f:
+            f.write(upscaled_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to save upscaled image: {e}")
+
+    b64_str = base64.b64encode(upscaled_bytes).decode("utf-8")
+
+    asset = rt.image_studio_db.add_asset(
+        asset_type="edited",
+        filepath=str(filepath),
+        session_id=session_id,
+        prompt=f"Upscaled {scale}x ({upscaler_name})",
+        model=f"upscale:{upscaler_name}",
+        parent_asset_id=parent_asset_id
+    )
+
+    return {
+        "id": asset["id"],
+        "image_base64": b64_str,
+        "filepath": str(filepath),
+        "source": f"Local Forge ({upscaler_name})",
+        "parent_asset_id": parent_asset_id
+    }
 
 
 @app.get("/api/image/library")

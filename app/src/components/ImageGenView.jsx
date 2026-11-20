@@ -84,6 +84,7 @@ export default function ImageGenView() {
   const [maskImage, setMaskImage] = useState(null)
   const [denoisingStrength, setDenoisingStrength] = useState(0.65)
   const [isEditing, setIsEditing] = useState(false)
+  const [isUpscaling, setIsUpscaling] = useState(false)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
@@ -416,6 +417,38 @@ export default function ImageGenView() {
       setEditError(detail)
     }
     setIsEditing(false)
+  }
+
+  // ── Hardware Upscale Handler (R-ESRGAN 4x+ via SD Forge) ──────────────
+  const handleUpscale = async () => {
+    if (!initImage || isUpscaling) return
+    setIsUpscaling(true)
+    setShowImageActionMenu(false)
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/upscale`, {
+        image: initImage,
+        upscaler: 'R-ESRGAN 4x+',
+        scale: 2.0,
+        session_id: activeVisualSessionId,
+        parent_asset_id: activeAssetId
+      })
+
+      const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id, image: dataUrl, prompt: 'Upscaled 2x (ESRGAN)', type: 'edited' }
+      ])
+      setInitImage(dataUrl)
+      setActiveAssetId(res.data.id)
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Upscale error', err)
+      const detail = err.response?.data?.detail || 'Hardware upscaling failed.'
+      setEditError(detail)
+    }
+    setIsUpscaling(false)
   }
 
   // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
@@ -911,6 +944,14 @@ export default function ImageGenView() {
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
                           <span>Chat with Image</span>
+                        </button>
+                        <button
+                          onClick={handleUpscale}
+                          disabled={isUpscaling}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-cyan-300 hover:bg-cyan-500/15 transition-colors text-left disabled:opacity-40"
+                        >
+                          {isUpscaling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                          <span>Upscale 2x (ESRGAN)</span>
                         </button>
                         <a
                           href={initImage}

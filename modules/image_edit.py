@@ -210,3 +210,40 @@ class ImageEditEngine:
         except Exception as e:
             logger.error(f"SD Forge img2img connection failed: {e}")
             return None
+
+    def upscale_image(
+        self,
+        image_b64: str,
+        upscaler_name: str = "R-ESRGAN 4x+",
+        upscaling_resize: float = 2.0
+    ) -> Optional[bytes]:
+        """
+        Upscales an image using SD Forge's local hardware-accelerated upscalers
+        (R-ESRGAN 4x+, SwinIR 4x, DAT x2, etc.) without cloud APIs.
+        """
+        if "base64," in image_b64:
+            image_b64 = image_b64.split("base64,")[1]
+
+        payload = {
+            "image": image_b64,
+            "upscaler_1": upscaler_name,
+            "upscaling_resize": float(upscaling_resize)
+        }
+        try:
+            self._ensure_forge_running()
+            res = requests.post(
+                f"{self.local_url}/sdapi/v1/extra-single-image",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=120
+            )
+            if res.status_code == 200:
+                data = res.json()
+                image_out = data.get("image")
+                if image_out:
+                    return base64.b64decode(image_out)
+            logger.error(f"SD Forge upscale failed with status {res.status_code}: {res.text[:200]}")
+            return None
+        except Exception as e:
+            logger.error(f"SD Forge upscale exception: {e}")
+            return None
