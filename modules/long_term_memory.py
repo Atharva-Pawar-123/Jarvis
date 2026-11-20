@@ -294,21 +294,36 @@ class HybridRAGMemory:
                 if task is None:
                     break
                 task_id, user_text, assistant_response = task
-                self._run_extraction(user_text, assistant_response)
-                # Mark completed in DB
-                try:
-                    with sqlite3.connect(str(self.db_path)) as conn:
-                        conn.execute(
-                            "UPDATE memory_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (task_id,)
-                        )
-                except Exception:
-                    pass
+                
+                # Mark as processing in DB
+                if task_id > 0:
+                    try:
+                        with sqlite3.connect(str(self.db_path)) as conn:
+                            conn.execute(
+                                "UPDATE memory_tasks SET status = 'processing' WHERE id = ?",
+                                (task_id,)
+                            )
+                    except Exception:
+                        pass
+
+                success, extracted_count, err_msg = self._run_extraction(user_text, assistant_response)
+                
+                # Mark completed or failed in DB based on actual extraction outcome
+                if task_id > 0:
+                    try:
+                        status_str = 'completed' if success else 'failed'
+                        with sqlite3.connect(str(self.db_path)) as conn:
+                            conn.execute(
+                                "UPDATE memory_tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (status_str, task_id)
+                            )
+                    except Exception:
+                        pass
                 self._task_queue.task_done()
             except Exception as e:
                 logging.error(f"Error in memory queue worker: {e}")
 
-    def _run_extraction(self, user_text: str, assistant_response: str):
+    def _run_extraction(self, user_text: str, assistant_response: str) -> tuple[bool, int, str]:
         prompt = [
             {"role": "system", "content": (
                 "Extract any learnable facts, preferences, or important information from this exchange. "
@@ -343,9 +358,11 @@ class HybridRAGMemory:
                         self.add_fact(fact)
                         count += 1
             self.last_extraction_status = {"status": "completed", "timestamp": datetime.datetime.now().isoformat(), "extracted_count": count}
+            return True, count, ""
         except Exception as e:
             self.last_extraction_status = {"status": "failed", "error": str(e), "timestamp": datetime.datetime.now().isoformat(), "extracted_count": 0}
             logging.warning(f"Fact extraction failed: {e}")
+            return False, 0, str(e)
 
     def extract_and_store_facts(self, user_text: str, assistant_response: str):
         """Persists memory task to SQLite and queues it for sequential worker extraction."""

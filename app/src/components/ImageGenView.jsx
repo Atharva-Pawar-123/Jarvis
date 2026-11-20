@@ -200,12 +200,23 @@ export default function ImageGenView() {
       const res = await axios.get(`${API_BASE}/api/image/sessions/${sid}`)
       const sess = res.data
       if (sess && sess.assets) {
-        const formatted = sess.assets.map((a) => ({
-          id: a.id,
-          image: a.image_base64 ? `data:image/png;base64,${a.image_base64}` : (a.filepath || ''),
-          prompt: a.prompt,
-          type: a.asset_type
-        }))
+        const formatted = sess.assets.map((a) => {
+          const isVideo = a.asset_type === 'video' || (a.filepath && a.filepath.endsWith('.mp4'))
+          let mediaUri = a.filepath || ''
+          if (a.image_base64) {
+            mediaUri = isVideo ? `data:video/mp4;base64,${a.image_base64}` : `data:image/png;base64,${a.image_base64}`
+          } else if (mediaUri && !mediaUri.startsWith('data:') && !mediaUri.startsWith('http')) {
+            const norm = mediaUri.replace(/\\/g, '/')
+            const idxStorage = norm.indexOf('storage/')
+            mediaUri = idxStorage !== -1 ? `${API_BASE}/${norm.slice(idxStorage)}` : `${API_BASE}/${norm}`
+          }
+          return {
+            id: a.id,
+            image: mediaUri,
+            prompt: a.prompt,
+            type: a.asset_type
+          }
+        })
         setCanvasVersions(formatted)
         if (formatted.length > 0) {
           setInitImage(formatted[formatted.length - 1].image)
@@ -214,24 +225,37 @@ export default function ImageGenView() {
           setInitImage(null)
           setActiveAssetId(null)
         }
+      } else {
+        setCanvasVersions([])
+        setInitImage(null)
+        setActiveAssetId(null)
       }
 
       // Restore workspace state if saved
       if (sess && sess.workspace_state) {
         try {
           const ws = typeof sess.workspace_state === 'string' ? JSON.parse(sess.workspace_state) : sess.workspace_state
-          if (ws.editPrompt !== undefined) setEditPrompt(ws.editPrompt)
-          if (ws.generatePrompt !== undefined) setGeneratePrompt(ws.generatePrompt)
+          setEditPrompt(ws.editPrompt || '')
+          setGeneratePrompt(ws.generatePrompt || '')
           if (ws.denoisingStrength !== undefined) setDenoisingStrength(ws.denoisingStrength)
           if (ws.selectedEditModel) setSelectedEditModel(ws.selectedEditModel)
           if (ws.selectedGenerateModel) setSelectedGenerateModel(ws.selectedGenerateModel)
           if (ws.steps !== undefined) setSteps(ws.steps)
           if (ws.brushSize !== undefined) setBrushSize(ws.brushSize)
-          if (ws.referenceImages && Array.isArray(ws.referenceImages)) setReferenceImages(ws.referenceImages)
+          setReferenceImages(Array.isArray(ws.referenceImages) ? ws.referenceImages : [])
           if (ws.activeSubTab) setActiveSubTab(ws.activeSubTab)
+          if (ws.initImage && formatted.length === 0) {
+            setInitImage(ws.initImage)
+            if (ws.activeAssetId) setActiveAssetId(ws.activeAssetId)
+          }
         } catch {
           // ignore parsing error
         }
+      } else {
+        // Reset inputs when opening a session with clean workspace state
+        setEditPrompt('')
+        setGeneratePrompt('')
+        setReferenceImages([])
       }
     } catch (e) {
       console.warn('Failed to load visual session', e)
@@ -251,11 +275,13 @@ export default function ImageGenView() {
         steps,
         brushSize,
         referenceImages,
-        activeSubTab
+        activeSubTab,
+        activeAssetId,
+        initImage
       }).catch(() => {})
     }, 1000)
     return () => clearTimeout(timer)
-  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize, referenceImages, activeSubTab])
+  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize, referenceImages, activeSubTab, activeAssetId, initImage])
 
   const handleCreateNewSession = async () => {
     try {
@@ -266,9 +292,14 @@ export default function ImageGenView() {
       const newSess = res.data
       setVisualSessions((prev) => [newSess, ...prev])
       setActiveVisualSessionId(newSess.session_id)
+      localStorage.setItem('jarvis_active_visual_session', newSess.session_id)
       setCanvasVersions([])
       setInitImage(null)
+      setActiveAssetId(null)
       setMaskImage(null)
+      setEditPrompt('')
+      setGeneratePrompt('')
+      setReferenceImages([])
     } catch (e) {
       console.error('Failed to create visual session', e)
     }
@@ -1536,9 +1567,14 @@ export default function ImageGenView() {
               ) : (
                 libraryAssets.map((asset) => {
                   const isVideo = asset.asset_type === 'video' || (asset.filepath && asset.filepath.endsWith('.mp4'))
-                  const mediaUrl = asset.image_base64
-                    ? (isVideo ? `data:video/mp4;base64,${asset.image_base64}` : `data:image/png;base64,${asset.image_base64}`)
-                    : (asset.filepath || '')
+                  let mediaUrl = asset.filepath || ''
+                  if (asset.image_base64) {
+                    mediaUrl = isVideo ? `data:video/mp4;base64,${asset.image_base64}` : `data:image/png;base64,${asset.image_base64}`
+                  } else if (mediaUrl && !mediaUrl.startsWith('data:') && !mediaUrl.startsWith('http')) {
+                    const norm = mediaUrl.replace(/\\/g, '/')
+                    const idxStorage = norm.indexOf('storage/')
+                    mediaUrl = idxStorage !== -1 ? `${API_BASE}/${norm.slice(idxStorage)}` : `${API_BASE}/${norm}`
+                  }
 
                   return (
                     <div

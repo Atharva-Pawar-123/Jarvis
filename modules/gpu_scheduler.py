@@ -124,6 +124,23 @@ class GPUScheduler:
                     self.active_job_id = None
 
     def get_job_status(self, job_id: str) -> Optional[dict]:
+        """Returns the current state and metadata of a specific media job."""
+        return self.jobs.get(job_id)
+
+    def get_queue_snapshot(self) -> dict:
+        """Returns a snapshot of the active job, queued count, and recent job history."""
+        active = self.jobs.get(self.active_job_id) if self.active_job_id else None
+        queued = [j for j in self.jobs.values() if j.get("status") == "queued"]
+        completed = [j for j in self.jobs.values() if j.get("status") in ("completed", "failed")]
+        return {
+            "active_job": active,
+            "queued_count": len(queued),
+            "completed_count": len(completed),
+            "recent_jobs": list(self.jobs.values())[-10:],
+            "active_vram_consumer": self.active_vram_consumer
+        }
+
+    def get_job_status(self, job_id: str) -> Optional[dict]:
         """Returns the current execution state of a media job."""
         return self.jobs.get(job_id)
 

@@ -59,7 +59,7 @@ LOG_PATH         = LOGS_DIR / "jarvis.log"
 AUDIT_LOG        = LOGS_DIR / "audit.log"
 
 # Ensure all dirs exist
-for d in [DATA_DIR, LOGS_DIR, PROJECTS_DIR, IMAGES_DIR, CHROMA_DIR, CACHE_DIR]:
+for d in [DATA_DIR, LOGS_DIR, PROJECTS_DIR, STORAGE_DIR, IMAGES_DIR, CHROMA_DIR, CACHE_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ── CONTEXT WINDOW ──

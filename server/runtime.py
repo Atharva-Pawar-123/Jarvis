@@ -168,8 +168,17 @@ class JarvisRuntime:
             request_id = str(uuid.uuid4())
             fut = self.permission_engine.register_approval_request(request_id)
             
-            # Target specific session if known, otherwise notify all active sessions
-            target_sessions = [session_id] if (session_id and session_id in self.manager.active) else list(self.manager.active.keys())
+            # Target specific session if known and active.
+            # Security Rule: Fail closed if target session is missing or offline.
+            # Do NOT broadcast sensitive approval prompts to arbitrary connected sessions.
+            if not session_id or session_id not in self.manager.active:
+                logger.warning(
+                    f"Approval request {request_id} for '{action}' rejected: "
+                    f"originating session '{session_id}' is unavailable or inactive (fail-closed)."
+                )
+                return False
+
+            target_sessions = [session_id]
 
             payload = {
                 "type": "approval_required",
@@ -177,9 +186,8 @@ class JarvisRuntime:
                 "action": action,
                 "details": details
             }
-            logger.info(f"Emitting approval request to sessions {target_sessions}: {payload}")
-            for sid in target_sessions:
-                await self.manager.send_to_session(sid, payload)
+            logger.info(f"Emitting approval request to session {session_id}: {payload}")
+            await self.manager.send_to_session(session_id, payload)
 
             # Wait for user decision with 45s timeout
             try:

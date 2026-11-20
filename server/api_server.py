@@ -1030,6 +1030,10 @@ async def get_visual_session(session_id: str, rt: JarvisRuntime = Depends(get_ru
     # Read files to base64 if needed for active canvas rendering
     for asset in sess.get("assets", []):
         fp = asset.get("filepath")
+        is_video = asset.get("asset_type") == "video" or (fp and fp.endswith(".mp4"))
+        # Do NOT load full video files as base64 into the session JSON payload to protect RAM
+        if is_video:
+            continue
         if fp and os.path.exists(fp):
             try:
                 with open(fp, "rb") as f:
@@ -1461,6 +1465,11 @@ async def get_image_library(
     )
     for a in assets:
         fp = a.get("filepath")
+        is_video = a.get("asset_type") == "video" or (fp and fp.endswith(".mp4"))
+        # Do NOT load full video files as base64 into the library JSON payload
+        # Frontend renders HTML5 video src directly via static mount
+        if is_video:
+            continue
         if fp and os.path.exists(fp):
             try:
                 with open(fp, "rb") as f:
