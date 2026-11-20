@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V2.4.8)
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V2.4.9)
 
 ---
 
@@ -7,11 +7,12 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the completion of **V2.4 Image Studio Pro & Multi-Session Visual Suite (Stabilized V2.4.8)**, JARVIS delivers an enterprise-grade, self-correcting desktop intelligence platform:
+With the completion of **V2.4 Image Studio Pro & Multi-Session Visual Suite (Stabilized V2.4.9)**, JARVIS delivers an enterprise-grade, self-correcting desktop intelligence platform:
 - **Image Studio Pro (Grok Imagine Architecture)**: Unified 3-in-1 creative studio featuring text-to-image generation, a dedicated **Edit Canvas** for instruction-guided img2img & inpainting, and an asset **Library** gallery.
 - **Direct Computer Storage Upload**: Upload any `.png`, `.jpg`, or `.webp` file from local storage via drag-and-drop or file picker with 25MB payload guard, automatic EXIF orientation stripping, and sRGB sanitization.
 - **Dedicated Inpainting & ControlNet IP2P Pipelines**: True split model execution routing ControlNet models (`control_v11e_sd15_ip2p_fp16`, `control_v11p_sd15_inpaint_fp16`) through Forge `alwayson_scripts` and inpainting checkpoints through `/sdapi/v1/options`.
 - **Multi-Reference Editing Deck (Up to 5 Reference Images)**: Dynamic reference image dock supporting simultaneous multi-style and composition conditioning dispatched to local ControlNet units.
+- **Hardware-Aware GPU Scheduler & Media Task Queue**: Strict VRAM coordination preventing concurrent VRAM collisions between LLM reasoning and SD image synthesis on 6GB VRAM GPUs, backed by a FIFO media task queue (`/api/gpu/queue`).
 - **Inpainting Canvas Mask Eraser & Undo/Redo**: Full interactive masking toolbar supporting white drawing, `destination-out` erasing, and complete `Undo`/`Redo` history stacks.
 - **Magic Wand Semantic Segmentation**: One-click ADE20K semantic segmentation using ControlNet, converting scene objects into precision inpaint masks without manual drawing.
 - **Background Removal (Isolated Transparent PNG)**: One-click subject segmentation that removes background with clean alpha transparency saved directly to the session asset tree.
@@ -24,7 +25,6 @@ With the completion of **V2.4 Image Studio Pro & Multi-Session Visual Suite (Sta
 - **Durable Cognitive Memory Queue**: Sequential background worker queue with real-time status telemetry (`GET /api/memory/status`), preventing task interruption during shutdowns.
 - **Persistent Asset Database (`image_studio.db`)**: Full SQLite catalog with enforced foreign keys (`PRAGMA foreign_keys = ON`) maintaining version lineage (Upload &rarr; Edit 1 &rarr; Edit 2), favorite flags, prompt metadata, and dimensions.
 - **Next-Gen Command Center & Ambient HUD**: Hexagonal lattice ambient background and interactive Arc Reactor canvas responding to real-time CPU/GPU system load.
-- **Hardware-Aware GPU Scheduler**: Manages mutually exclusive execution between Qwen LLM reasoning, LLaVA vision, and Stable Diffusion Forge image generation to eliminate CUDA Out-of-Memory crashes on 6GB VRAM GPUs.
 
 ---
 
