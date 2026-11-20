@@ -88,6 +88,8 @@ export default function ImageGenView() {
   const [isUpscaling, setIsUpscaling] = useState(false)
   const [isSegmenting, setIsSegmenting] = useState(false)
   const [isRemovingBg, setIsRemovingBg] = useState(false)
+  const [isReplacingBg, setIsReplacingBg] = useState(false)
+  const [isOutpainting, setIsOutpainting] = useState(false)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
@@ -516,6 +518,81 @@ export default function ImageGenView() {
       setEditError(detail)
     }
     setIsRemovingBg(false)
+  }
+
+  // ── Background Replacement Handler ────────────────────────────────────
+  const handleReplaceBg = async () => {
+    if (!initImage || isReplacingBg) return
+    const promptToUse = editPrompt.trim()
+    if (!promptToUse) {
+      setEditError('Please enter a prompt describing the new background before replacing.')
+      return
+    }
+
+    setIsReplacingBg(true)
+    setShowImageActionMenu(false)
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/replace-bg`, {
+        image: initImage,
+        prompt: promptToUse,
+        session_id: activeVisualSessionId,
+        parent_asset_id: activeAssetId,
+        denoising_strength: denoisingStrength,
+        steps: steps,
+        cfg_scale: cfgScale
+      })
+
+      const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id, image: dataUrl, prompt: `Replaced BG: ${promptToUse}`, type: 'edited' }
+      ])
+      setInitImage(dataUrl)
+      setActiveAssetId(res.data.id)
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Replace background error', err)
+      const detail = err.response?.data?.detail || 'Background replacement failed.'
+      setEditError(detail)
+    }
+    setIsReplacingBg(false)
+  }
+
+  // ── Generative Outpainting (Aspect Ratio Expansion) Handler ───────────
+  const handleOutpaint = async (targetRatio = '16:9') => {
+    if (!initImage || isOutpainting) return
+    setIsOutpainting(true)
+    setShowImageActionMenu(false)
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/outpaint`, {
+        image: initImage,
+        prompt: editPrompt.trim() || 'seamless natural scene extension, matching perspective and lighting',
+        target_ratio: targetRatio,
+        session_id: activeVisualSessionId,
+        parent_asset_id: activeAssetId,
+        denoising_strength: 0.90,
+        steps: steps,
+        cfg_scale: cfgScale
+      })
+
+      const dataUrl = `data:image/png;base64,${res.data.image_base64}`
+      setCanvasVersions((prev) => [
+        ...prev,
+        { id: res.data.id, image: dataUrl, prompt: `Outpaint ${targetRatio}`, type: 'edited' }
+      ])
+      setInitImage(dataUrl)
+      setActiveAssetId(res.data.id)
+      fetchVisualSessions()
+      fetchLibrary()
+    } catch (err) {
+      console.error('Outpainting error', err)
+      const detail = err.response?.data?.detail || 'Outpainting failed.'
+      setEditError(detail)
+    }
+    setIsOutpainting(false)
   }
 
   // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
@@ -1027,6 +1104,24 @@ export default function ImageGenView() {
                         >
                           {isRemovingBg ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
                           <span>Remove Background</span>
+                        </button>
+                        <button
+                          onClick={handleReplaceBg}
+                          disabled={isReplacingBg}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-indigo-300 hover:bg-indigo-500/15 transition-colors text-left disabled:opacity-40"
+                          title="Preserves foreground subject and paints new background from prompt"
+                        >
+                          {isReplacingBg ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+                          <span>Replace Background</span>
+                        </button>
+                        <button
+                          onClick={() => handleOutpaint('16:9')}
+                          disabled={isOutpainting}
+                          className="w-full px-3 py-2 flex items-center gap-2 text-amber-300 hover:bg-amber-500/15 transition-colors text-left disabled:opacity-40"
+                          title="Expand image canvas to 16:9 widescreen"
+                        >
+                          {isOutpainting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Crop className="w-3.5 h-3.5" />}
+                          <span>Outpaint (16:9)</span>
                         </button>
                         <a
                           href={initImage}

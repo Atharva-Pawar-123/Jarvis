@@ -1209,6 +1209,144 @@ async def remove_background_api(
     }
 
 
+@app.post("/api/image/replace-bg")
+async def replace_background_api(
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_edit or not rt.image_studio_db:
+        raise HTTPException(500, "Image Studio engine not initialized.")
+
+    image_b64 = payload.get("image")
+    prompt = payload.get("prompt")
+    if not image_b64 or not prompt:
+        raise HTTPException(400, "Both 'image' and 'prompt' are required for background replacement.")
+
+    session_id = payload.get("session_id")
+    parent_asset_id = payload.get("parent_asset_id")
+    negative_prompt = payload.get("negative_prompt", "")
+    denoising_strength = float(payload.get("denoising_strength", 0.85))
+    steps = int(payload.get("steps", 25))
+    cfg_scale = float(payload.get("cfg_scale", 7.0))
+
+    try:
+        from core.system_monitor import system_monitor
+        system_monitor.park_for_media_generation()
+    except Exception as e:
+        logger.warning(f"Failed to park system monitor/Ollama for replace-bg: {e}")
+
+    result_bytes = await asyncio.to_thread(
+        rt.image_edit.replace_background,
+        image_b64,
+        prompt,
+        negative_prompt,
+        denoising_strength,
+        steps,
+        cfg_scale
+    )
+
+    if not result_bytes:
+        raise HTTPException(500, "Background replacement generation failed.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"replacebg_{timestamp}.png"
+    filepath = rt.image_edit.save_dir / filename
+    try:
+        with open(filepath, "wb") as f:
+            f.write(result_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to save replaced background image: {e}")
+
+    b64_str = base64.b64encode(result_bytes).decode("utf-8")
+
+    asset = rt.image_studio_db.add_asset(
+        asset_type="edited",
+        filepath=str(filepath),
+        session_id=session_id,
+        prompt=f"Replaced Background: {prompt}",
+        model="tool:replace_background",
+        parent_asset_id=parent_asset_id
+    )
+
+    return {
+        "id": asset["id"],
+        "image_base64": b64_str,
+        "filepath": str(filepath),
+        "source": "Local Background Replacement",
+        "parent_asset_id": parent_asset_id
+    }
+
+
+@app.post("/api/image/outpaint")
+async def outpaint_image_api(
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_edit or not rt.image_studio_db:
+        raise HTTPException(500, "Image Studio engine not initialized.")
+
+    image_b64 = payload.get("image")
+    if not image_b64:
+        raise HTTPException(400, "No image provided for outpainting.")
+
+    prompt = payload.get("prompt", "")
+    target_ratio = payload.get("target_ratio", "16:9")
+    session_id = payload.get("session_id")
+    parent_asset_id = payload.get("parent_asset_id")
+    negative_prompt = payload.get("negative_prompt", "")
+    denoising_strength = float(payload.get("denoising_strength", 0.90))
+    steps = int(payload.get("steps", 25))
+    cfg_scale = float(payload.get("cfg_scale", 7.0))
+
+    try:
+        from core.system_monitor import system_monitor
+        system_monitor.park_for_media_generation()
+    except Exception as e:
+        logger.warning(f"Failed to park system monitor/Ollama for outpainting: {e}")
+
+    result_bytes = await asyncio.to_thread(
+        rt.image_edit.outpaint_image,
+        image_b64,
+        prompt,
+        target_ratio,
+        negative_prompt,
+        denoising_strength,
+        steps,
+        cfg_scale
+    )
+
+    if not result_bytes:
+        raise HTTPException(500, "Outpainting generation failed.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"outpaint_{timestamp}.png"
+    filepath = rt.image_edit.save_dir / filename
+    try:
+        with open(filepath, "wb") as f:
+            f.write(result_bytes)
+    except Exception as e:
+        logger.warning(f"Failed to save outpainted image: {e}")
+
+    b64_str = base64.b64encode(result_bytes).decode("utf-8")
+
+    asset = rt.image_studio_db.add_asset(
+        asset_type="edited",
+        filepath=str(filepath),
+        session_id=session_id,
+        prompt=f"Outpaint ({target_ratio}): {prompt}" if prompt else f"Outpaint ({target_ratio})",
+        model="tool:outpaint",
+        parent_asset_id=parent_asset_id
+    )
+
+    return {
+        "id": asset["id"],
+        "image_base64": b64_str,
+        "filepath": str(filepath),
+        "source": "Local Generative Outpaint",
+        "parent_asset_id": parent_asset_id
+    }
+
+
 @app.get("/api/image/library")
 async def get_image_library(
     type: Optional[str] = "all",

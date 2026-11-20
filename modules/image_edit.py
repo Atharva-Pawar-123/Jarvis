@@ -320,3 +320,153 @@ class ImageEditEngine:
         except Exception as e:
             logger.error(f"Background removal failed: {e}")
             return None
+
+    def replace_background(
+        self,
+        image_b64: str,
+        prompt: str,
+        negative_prompt: str = "",
+        denoising_strength: float = 0.85,
+        steps: int = 25,
+        cfg_scale: float = 7.0,
+        threshold: int = 240
+    ) -> Optional[bytes]:
+        """
+        Replaces the background of an image while preserving the subject.
+        1. Detects background (near-white pixels) → creates binary mask
+        2. Inverts mask so background = white (inpaint region), subject = black (preserve)
+        3. Runs SD Forge inpainting with the user's prompt for the new background
+        """
+        if "base64," in image_b64:
+            image_b64 = image_b64.split("base64,")[1]
+
+        try:
+            raw_bytes = base64.b64decode(image_b64)
+            img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            w, h = img.size
+
+            # Build mask: white = area to repaint (background), black = preserve (subject)
+            mask = Image.new("L", (w, h), 0)
+            pixels = img.getdata()
+            mask_data = []
+            for px in pixels:
+                if px[0] > threshold and px[1] > threshold and px[2] > threshold:
+                    mask_data.append(255)  # Background → repaint
+                else:
+                    mask_data.append(0)    # Subject → preserve
+            mask.putdata(mask_data)
+
+            # Encode mask to base64
+            mask_buf = io.BytesIO()
+            mask.save(mask_buf, format="PNG")
+            mask_b64 = base64.b64encode(mask_buf.getvalue()).decode("utf-8")
+
+            # Run inpainting via edit_image with the generated mask
+            return self.edit_image(
+                init_image_b64=image_b64,
+                prompt=prompt,
+                mask_b64=mask_b64,
+                negative_prompt=negative_prompt or "blurry, low quality, artifacts, text, watermark",
+                denoising_strength=denoising_strength,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                sampler_name="Euler a"
+            )
+        except Exception as e:
+            logger.error(f"Background replacement failed: {e}")
+            return None
+
+    def outpaint_image(
+        self,
+        image_b64: str,
+        prompt: str,
+        target_ratio: str = "16:9",
+        negative_prompt: str = "",
+        denoising_strength: float = 0.90,
+        steps: int = 25,
+        cfg_scale: float = 7.0
+    ) -> Optional[bytes]:
+        """
+        Expands an image to a new aspect ratio via outpainting (generative fill).
+        Pads the original image onto a larger canvas, creates a mask over the
+        empty (expanded) regions, and runs SD Forge inpainting to fill them.
+        """
+        if "base64," in image_b64:
+            image_b64 = image_b64.split("base64,")[1]
+
+        RATIOS = {
+            "16:9": (16, 9),
+            "9:16": (9, 16),
+            "4:3": (4, 3),
+            "3:4": (3, 4),
+            "21:9": (21, 9),
+            "1:1": (1, 1),
+        }
+        ratio = RATIOS.get(target_ratio, (16, 9))
+
+        try:
+            raw_bytes = base64.b64decode(image_b64)
+            img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            orig_w, orig_h = img.size
+
+            # Calculate new canvas size preserving max original dimension
+            rw, rh = ratio
+            # Fit the original image inside the target ratio canvas
+            if orig_w / orig_h > rw / rh:
+                # Original is wider than target → expand height
+                new_w = orig_w
+                new_h = int(orig_w * rh / rw)
+            else:
+                # Original is taller than target → expand width
+                new_h = orig_h
+                new_w = int(orig_h * rw / rh)
+
+            # Ensure divisible by 64 for SD compatibility
+            new_w = max(384, min(1024, (new_w // 64) * 64))
+            new_h = max(384, min(1024, (new_h // 64) * 64))
+
+            # If canvas is same or smaller, nothing to outpaint
+            if new_w <= orig_w and new_h <= orig_h:
+                logger.info("Image already matches target aspect ratio, no outpainting needed.")
+                return None
+
+            # Center the original image on the new canvas
+            canvas = Image.new("RGB", (new_w, new_h), (128, 128, 128))
+            paste_x = (new_w - orig_w) // 2
+            paste_y = (new_h - orig_h) // 2
+            # Resize original if it exceeds canvas
+            if orig_w > new_w or orig_h > new_h:
+                img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+                paste_x = (new_w - img.width) // 2
+                paste_y = (new_h - img.height) // 2
+            canvas.paste(img, (paste_x, paste_y))
+
+            # Create mask: white = expanded region (generate), black = original image (preserve)
+            mask = Image.new("L", (new_w, new_h), 255)  # All white
+            # Black out the original image region
+            orig_region = Image.new("L", (img.width, img.height), 0)
+            mask.paste(orig_region, (paste_x, paste_y))
+
+            # Encode canvas and mask
+            canvas_buf = io.BytesIO()
+            canvas.save(canvas_buf, format="PNG")
+            canvas_b64 = base64.b64encode(canvas_buf.getvalue()).decode("utf-8")
+
+            mask_buf = io.BytesIO()
+            mask.save(mask_buf, format="PNG")
+            mask_b64 = base64.b64encode(mask_buf.getvalue()).decode("utf-8")
+
+            # Run inpainting on the expanded canvas
+            return self.edit_image(
+                init_image_b64=canvas_b64,
+                prompt=prompt or "seamless natural extension of the scene, same style and lighting",
+                mask_b64=mask_b64,
+                negative_prompt=negative_prompt or "seams, artifacts, blurry, mismatched colors, text",
+                denoising_strength=denoising_strength,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                sampler_name="Euler a"
+            )
+        except Exception as e:
+            logger.error(f"Outpainting failed: {e}")
+            return None
