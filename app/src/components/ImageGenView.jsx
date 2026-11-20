@@ -40,6 +40,7 @@ import {
   Undo,
   Redo,
   Eraser,
+  Wand2,
   MoreVertical
 } from 'lucide-react'
 import axios from 'axios'
@@ -85,6 +86,7 @@ export default function ImageGenView() {
   const [denoisingStrength, setDenoisingStrength] = useState(0.65)
   const [isEditing, setIsEditing] = useState(false)
   const [isUpscaling, setIsUpscaling] = useState(false)
+  const [isSegmenting, setIsSegmenting] = useState(false)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
@@ -449,6 +451,40 @@ export default function ImageGenView() {
       setEditError(detail)
     }
     setIsUpscaling(false)
+  }
+
+  // ── Auto Magic Segmentation Handler (Grok Magic Wand / ControlNet ADE20K) ─
+  const handleAutoSegment = async () => {
+    if (!initImage || isSegmenting) return
+    setIsSegmenting(true)
+    setEditError('')
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/image/segment`, {
+        image: initImage,
+        module: 'seg_ofade20k',
+        resolution: 512
+      })
+
+      const segDataUrl = `data:image/png;base64,${res.data.mask_base64}`
+      // Enable masking mode and draw returned segmentation onto canvas
+      setIsMaskingMode(true)
+      const canvas = canvasRef.current
+      if (canvas) {
+        const ctx = canvas.getContext('2d')
+        const img = new Image()
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          setMaskImage(canvas.toDataURL('image/png'))
+        }
+        img.src = segDataUrl
+      }
+    } catch (err) {
+      console.error('Segmentation error', err)
+      const detail = err.response?.data?.detail || 'Auto-segmentation failed. Please ensure SD Forge is online.'
+      setEditError(detail)
+    }
+    setIsSegmenting(false)
   }
 
   // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
@@ -1071,6 +1107,17 @@ export default function ImageGenView() {
                         className="w-16 accent-cyan-400"
                       />
                     </div>
+
+                    {/* Auto Magic Segment Button (Grok Wand) */}
+                    <button
+                      onClick={handleAutoSegment}
+                      disabled={isSegmenting || !initImage}
+                      className="px-2.5 py-1 rounded-lg border font-mono text-[11px] flex items-center gap-1.5 transition-all bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30 text-purple-300 disabled:opacity-40"
+                      title="Automatically segment objects with ControlNet ADE20K"
+                    >
+                      {isSegmenting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3 text-purple-400" />}
+                      Magic Wand
+                    </button>
 
                     {/* Mask Brush / Eraser Mode Toggle */}
                     <button

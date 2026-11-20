@@ -247,3 +247,43 @@ class ImageEditEngine:
         except Exception as e:
             logger.error(f"SD Forge upscale exception: {e}")
             return None
+
+    def segment_image(
+        self,
+        image_b64: str,
+        module: str = "seg_ofade20k",
+        resolution: int = 512
+    ) -> Optional[bytes]:
+        """
+        Runs neural object/scene semantic segmentation using Forge's local ControlNet preprocessors
+        (e.g., 'seg_ofade20k', 'seg_ufade20k', 'seg_ofcoco', 'seg_anime_face').
+        Returns the segmented mask bitmap as bytes.
+        """
+        if "base64," in image_b64:
+            image_b64 = image_b64.split("base64,")[1]
+
+        payload = {
+            "controlnet_module": module,
+            "controlnet_input_images": [image_b64],
+            "controlnet_processor_res": resolution,
+            "controlnet_threshold_a": 64,
+            "controlnet_threshold_b": 64
+        }
+        try:
+            self._ensure_forge_running()
+            res = requests.post(
+                f"{self.local_url}/controlnet/detect",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60
+            )
+            if res.status_code == 200:
+                data = res.json()
+                images = data.get("images", [])
+                if images:
+                    return base64.b64decode(images[0])
+            logger.error(f"ControlNet segment failed with status {res.status_code}: {res.text[:200]}")
+            return None
+        except Exception as e:
+            logger.error(f"ControlNet segment exception: {e}")
+            return None

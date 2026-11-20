@@ -1119,6 +1119,44 @@ async def upscale_image_api(
     }
 
 
+@app.post("/api/image/segment")
+async def segment_image_api(
+    payload: Dict[str, Any] = Body(...),
+    rt: JarvisRuntime = Depends(get_runtime)
+):
+    if not rt.image_edit:
+        raise HTTPException(500, "Image Studio engine not initialized.")
+
+    image_b64 = payload.get("image")
+    if not image_b64:
+        raise HTTPException(400, "No image provided for segmentation.")
+
+    module = payload.get("module", "seg_ofade20k")
+    resolution = int(payload.get("resolution", 512))
+
+    # Park Ollama to free VRAM for segmentation preprocessor
+    try:
+        await rt.gpu_scheduler.prepare_for_image_gen()
+    except Exception as e:
+        logger.warning(f"GPU scheduler park failed: {e}")
+
+    mask_bytes = await asyncio.to_thread(
+        rt.image_edit.segment_image,
+        image_b64,
+        module,
+        resolution
+    )
+
+    if not mask_bytes:
+        raise HTTPException(503, "Neural segmentation failed or SD Forge is offline.")
+
+    b64_str = base64.b64encode(mask_bytes).decode("utf-8")
+    return {
+        "mask_base64": b64_str,
+        "module": module
+    }
+
+
 @app.get("/api/image/library")
 async def get_image_library(
     type: Optional[str] = "all",
