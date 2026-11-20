@@ -157,7 +157,7 @@ class JarvisRuntime:
         try:
             self.image_gen = ImageGenerationEngine()
             self.image_edit = ImageEditEngine()
-            self.image_studio_db = ImageStudioDB()
+            self.image_studio_db = ImageStudioDB(db_path=str(config.DATA_DIR / "image_studio.db"))
             self.video_studio = VideoStudioEngine()
         except Exception as e:
             logger.warning(f"Could not initialize ImageGenerationEngine / Studio: {e}")

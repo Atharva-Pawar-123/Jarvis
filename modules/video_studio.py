@@ -16,7 +16,7 @@ import base64
 import logging
 import numpy as np
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from PIL import Image
 
 import config
@@ -39,11 +39,12 @@ class VideoStudioEngine:
         duration_seconds: float = 2.0,
         fps: int = 16,
         output_format: str = "mp4"
-    ) -> Optional[bytes]:
+    ) -> Tuple[Optional[bytes], Optional[str]]:
         """
         Synthesizes a fluid camera movement clip from a high-quality keyframe image.
         Motion types: 'zoom_in', 'zoom_out', 'pan_right', 'pan_left', 'cinematic_drift'.
         Uses OpenCV for sub-pixel frame generation and lossless video encoding.
+        Returns tuple of (video_bytes, absolute_filepath_str).
         """
         if "base64," in image_b64:
             image_b64 = image_b64.split("base64,")[1]
@@ -123,9 +124,9 @@ class VideoStudioEngine:
             writer.release()
 
             if out_path.exists():
-                return out_path.read_bytes()
-            return None
+                return out_path.read_bytes(), str(out_path)
+            return None, None
 
         except Exception as e:
             logger.error(f"Motion video synthesis failed: {e}", exc_info=True)
-            return None
+            return None, None

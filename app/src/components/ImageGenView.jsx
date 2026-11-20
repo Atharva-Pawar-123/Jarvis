@@ -227,6 +227,8 @@ export default function ImageGenView() {
           if (ws.selectedGenerateModel) setSelectedGenerateModel(ws.selectedGenerateModel)
           if (ws.steps !== undefined) setSteps(ws.steps)
           if (ws.brushSize !== undefined) setBrushSize(ws.brushSize)
+          if (ws.referenceImages && Array.isArray(ws.referenceImages)) setReferenceImages(ws.referenceImages)
+          if (ws.activeSubTab) setActiveSubTab(ws.activeSubTab)
         } catch {
           // ignore parsing error
         }
@@ -247,11 +249,13 @@ export default function ImageGenView() {
         selectedEditModel,
         selectedGenerateModel,
         steps,
-        brushSize
+        brushSize,
+        referenceImages,
+        activeSubTab
       }).catch(() => {})
     }, 1000)
     return () => clearTimeout(timer)
-  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize])
+  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize, referenceImages, activeSubTab])
 
   const handleCreateNewSession = async () => {
     try {
@@ -1491,7 +1495,7 @@ export default function ImageGenView() {
             {/* Filter Bar */}
             <div className="flex items-center justify-between mb-6 pb-4 border-b border-cyan-500/20">
               <div className="flex items-center gap-2">
-                {['all', 'generated', 'uploaded', 'edited', 'favorite'].map((f) => (
+                {['all', 'generated', 'uploaded', 'edited', 'video', 'favorite'].map((f) => (
                   <button
                     key={f}
                     onClick={() => {
@@ -1518,33 +1522,63 @@ export default function ImageGenView() {
                 </div>
               ) : (
                 libraryAssets.map((asset) => {
-                  const imgUrl = asset.image_base64
-                    ? `data:image/png;base64,${asset.image_base64}`
+                  const isVideo = asset.asset_type === 'video' || (asset.filepath && asset.filepath.endsWith('.mp4'))
+                  const mediaUrl = asset.image_base64
+                    ? (isVideo ? `data:video/mp4;base64,${asset.image_base64}` : `data:image/png;base64,${asset.image_base64}`)
                     : (asset.filepath || '')
+
                   return (
                     <div
                       key={asset.id}
                       className="group relative rounded-xl overflow-hidden border border-slate-800 hover:border-cyan-500/50 transition-all bg-slate-900/40"
                     >
-                      <img src={imgUrl} alt={asset.prompt} className="w-full h-44 object-cover" />
+                      {isVideo ? (
+                        <div className="relative w-full h-44 bg-black flex items-center justify-center">
+                          <video
+                            src={mediaUrl}
+                            muted
+                            loop
+                            playsInline
+                            onMouseEnter={(e) => e.target.play().catch(() => {})}
+                            onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0 }}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-fuchsia-950/80 border border-fuchsia-500/40 text-[9px] font-mono text-fuchsia-300 flex items-center gap-1">
+                            <Film className="w-2.5 h-2.5" />
+                            VIDEO
+                          </div>
+                        </div>
+                      ) : (
+                        <img src={mediaUrl} alt={asset.prompt} className="w-full h-44 object-cover" />
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2.5 flex flex-col justify-end">
                         <p className="text-[11px] text-slate-200 line-clamp-2 mb-2">{asset.prompt}</p>
                         <div className="flex items-center justify-between">
-                          <button
-                            onClick={() => {
-                              setInitImage(imgUrl)
-                              setActiveAssetId(asset.id)
-                              setActiveSubTab('edit')
-                            }}
-                            className="p-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40"
-                            title="Edit this Image"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
+                          {isVideo ? (
+                            <button
+                              onClick={() => setGeneratedVideoUrl(mediaUrl)}
+                              className="p-1 rounded bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/40"
+                              title="Play Video"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setInitImage(mediaUrl)
+                                setActiveAssetId(asset.id)
+                                setActiveSubTab('edit')
+                              }}
+                              className="p-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/40"
+                              title="Edit this Image"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <div className="flex items-center gap-1">
                             <a
-                              href={imgUrl}
-                              download={`jarvis_asset_${asset.id}.png`}
+                              href={mediaUrl}
+                              download={isVideo ? `jarvis_video_${asset.id}.mp4` : `jarvis_asset_${asset.id}.png`}
                               className="p-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
                               title="Download"
                             >

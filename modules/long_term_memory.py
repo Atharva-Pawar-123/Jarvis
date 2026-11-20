@@ -30,13 +30,45 @@ class HybridRAGMemory:
         self.bm25_index = None
         self._load_bm25()
 
-        # Durable Background Memory Task Queue
+        # Durable SQLite-backed Background Memory Task Queue
+        self.db_path = config.DATA_DIR / "memory_queue.sqlite"
+        self._init_memory_db()
         self._task_queue = queue.Queue()
+        self._recover_pending_tasks()
         self._worker_thread = threading.Thread(target=self._process_memory_queue, daemon=True)
         self._worker_thread.start()
         self.last_extraction_status = {"status": "idle", "timestamp": None, "extracted_count": 0}
         
-        logging.info("HybridRAGMemory initialized successfully with durable task worker.")
+        logging.info("HybridRAGMemory initialized successfully with durable SQLite task worker.")
+
+    def _init_memory_db(self):
+        import sqlite3
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_text TEXT NOT NULL,
+                    assistant_response TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                )
+            """)
+
+    def _recover_pending_tasks(self):
+        """Pushes any unfinished tasks from previous sessions back into the active worker queue."""
+        import sqlite3
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, user_text, assistant_response FROM memory_tasks WHERE status = 'pending'")
+                rows = cursor.fetchall()
+                for task_id, u_text, a_text in rows:
+                    self._task_queue.put((task_id, u_text, a_text))
+                if rows:
+                    logging.info(f"Recovered {len(rows)} pending durable memory extraction jobs.")
+        except Exception as e:
+            logging.error(f"Failed to recover pending memory tasks: {e}")
 
     def _load_bm25(self):
         if config.BM25_CORPUS.exists():
@@ -254,14 +286,24 @@ class HybridRAGMemory:
         return context_str.strip()
 
     def _process_memory_queue(self):
-        """Worker that sequentially extracts and indexes memory tasks safely."""
+        """Worker that sequentially extracts and indexes memory tasks safely with SQLite tracking."""
+        import sqlite3
         while True:
             try:
                 task = self._task_queue.get()
                 if task is None:
                     break
-                user_text, assistant_response = task
+                task_id, user_text, assistant_response = task
                 self._run_extraction(user_text, assistant_response)
+                # Mark completed in DB
+                try:
+                    with sqlite3.connect(str(self.db_path)) as conn:
+                        conn.execute(
+                            "UPDATE memory_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (task_id,)
+                        )
+                except Exception:
+                    pass
                 self._task_queue.task_done()
             except Exception as e:
                 logging.error(f"Error in memory queue worker: {e}")
@@ -306,8 +348,21 @@ class HybridRAGMemory:
             logging.warning(f"Fact extraction failed: {e}")
 
     def extract_and_store_facts(self, user_text: str, assistant_response: str):
-        """Queues a memory fact extraction task onto the durable worker queue."""
-        self._task_queue.put((user_text, assistant_response))
+        """Persists memory task to SQLite and queues it for sequential worker extraction."""
+        import sqlite3
+        task_id = 0
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO memory_tasks (user_text, assistant_response, status) VALUES (?, ?, 'pending')",
+                    (user_text, assistant_response)
+                )
+                task_id = cursor.lastrowid
+        except Exception as e:
+            logging.error(f"Failed to persist memory task: {e}")
+
+        self._task_queue.put((task_id, user_text, assistant_response))
 
     def clear_all(self):
         # We delete by recreating the DB or wiping data

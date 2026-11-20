@@ -187,7 +187,7 @@ def test_video_studio_motion_synthesis():
     b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
 
     # Generate a short 0.25s test video (4 frames at 16fps)
-    video_bytes = engine.generate_motion_video(
+    video_bytes, vid_path = engine.generate_motion_video(
         image_b64=b64_str,
         motion_type="zoom_in",
         duration_seconds=0.25,
@@ -196,5 +196,8 @@ def test_video_studio_motion_synthesis():
 
     assert video_bytes is not None
     assert len(video_bytes) > 0
+    assert vid_path is not None
+    import os
+    assert os.path.exists(vid_path)
 
 

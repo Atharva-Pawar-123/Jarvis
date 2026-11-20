@@ -1395,7 +1395,7 @@ async def generate_motion_video_api(
     rt.gpu_scheduler.update_job_status(job_id, "running", progress=0.2)
 
     try:
-        video_bytes = await asyncio.to_thread(
+        video_bytes, vid_filepath = await asyncio.to_thread(
             rt.video_studio.generate_motion_video,
             image_b64,
             motion_type,
@@ -1406,7 +1406,7 @@ async def generate_motion_video_api(
         rt.gpu_scheduler.update_job_status(job_id, "failed", error=str(e))
         raise HTTPException(500, f"Video generation failed: {e}")
 
-    if not video_bytes:
+    if not video_bytes or not vid_filepath:
         rt.gpu_scheduler.update_job_status(job_id, "failed", error="Synthesis returned empty buffer")
         raise HTTPException(500, "Failed to synthesize motion video.")
 
@@ -1415,14 +1415,12 @@ async def generate_motion_video_api(
     b64_video = base64.b64encode(video_bytes).decode("utf-8")
     data_uri = f"data:video/mp4;base64,{b64_video}"
 
-    # Also register in Studio DB if active
+    # Also register in Studio DB as a distinct 'video' asset type with exact path
     asset_id = None
     if rt.image_studio_db:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        vid_path = rt.video_studio.video_dir / f"vid_{timestamp}.mp4"
         asset = rt.image_studio_db.add_asset(
-            asset_type="edited",
-            filepath=str(vid_path),
+            asset_type="video",
+            filepath=vid_filepath,
             session_id=session_id,
             prompt=f"Motion Video ({motion_type}, {duration}s)",
             model="video:motion_synthesizer",
@@ -1435,6 +1433,7 @@ async def generate_motion_video_api(
         "job_id": job_id,
         "video_base64": b64_video,
         "video_uri": data_uri,
+        "filepath": vid_filepath,
         "motion_type": motion_type,
         "duration": duration,
         "fps": fps,
