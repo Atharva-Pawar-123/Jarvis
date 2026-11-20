@@ -207,10 +207,13 @@ class PermissionEngine:
         # Interactive approval via callback if available
         if self.approval_callback:
             try:
+                # Strip session_id from kwargs to avoid "got multiple values" when
+                # it is forwarded both as an explicit kwarg and inside **kwargs.
+                clean_kwargs = {k: v for k, v in kwargs.items() if k != "session_id"}
                 import inspect
                 sig = inspect.signature(self.approval_callback)
                 if "session_id" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-                    approved = await self.approval_callback(norm_action, details, session_id=session_id, **kwargs)
+                    approved = await self.approval_callback(norm_action, details, session_id=session_id, **clean_kwargs)
                 else:
                     approved = await self.approval_callback(norm_action, details)
 

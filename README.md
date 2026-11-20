@@ -173,14 +173,21 @@ pytest -q tests/v2/
 
 | Module | What It Does | How to Access / Activate |
 |---|---|---|
+| **🎬 Imagine Video Studio** | Synthesize fluid cinematic camera motion clips from keyframe images into MP4/WEBM with an interactive preview player | Click **Create Motion Video** in Image Studio action menu |
+| **🎞️ Video Asset Library** | Full video library indexing, hover-to-scrub video cards, and dedicated `video` category filter | Select `video` filter pill in Image Studio Library |
 | **🌌 Command Center HUD** | Futuristic mission dashboard with 3D orb, real-time telemetry, agent matrix, and timeline | Default landing tab on app launch |
+| **📊 Tactical HUD & GPU Queue** | Real-time system gauges (CPU, RAM, VRAM, Temp) and live GPU Media Pipeline task monitor | Click **Tactical HUD** in sidebar |
 | **🎨 Image Studio Pro** | 3-in-1 visual suite: Text-to-Image, Edit Canvas (img2img/inpaint), and Masonry Library | Click **Image Studio** in sidebar |
+| **🎛️ Multi-Reference Deck** | Up to 5 simultaneous reference images routed to ControlNet units for style & identity guidance | Click **Ref Image (+)** in edit console |
+| **✂️ Neural Cutout & GrabCut** | Segment and isolate foreground subjects from complex backgrounds to transparent PNGs | Click **Remove Background** in action menu |
+| **🌄 Background Replacement** | Inverts subject mask, protects foreground, and paints realistic new backgrounds from prompts | Click **Replace Background** in action menu |
+| **📐 Generative Outpainting** | Expands canvas borders to widescreen 16:9 using edge-matched inpainting fill | Click **Outpaint (16:9)** in action menu |
 | **📤 Storage Image Upload** | Upload images from your computer for editing or chatting | Click **Upload Image** or drag-and-drop onto canvas |
-| **🖼️ Grok Imagine Sessions** | Multi-session rail with 3-image preview cards & independent states | Left rail in Image Studio |
+| **🖼️ Grok Imagine Sessions** | Multi-session rail with 3-image preview cards, auto-synced prompts, and persistent states | Left rail in Image Studio |
 | **🗑️ Zero-Trace Deletion** | Context menu deletion for conversations, sessions, and individual images with physical file unlinking | Click 3-dots `...` menu on chats, session cards, or image previews |
 | **💬 Conversations & Chat** | Full-context conversational reasoning with ChatGPT/Claude-style streaming | Click **Conversations** tab in sidebar |
 | **🎙️ Voice Interface** | Wake-word ("Hey Jarvis") + Arc Reactor push-to-talk orb + British TTS | Speak aloud or click microphone button |
-| **🧠 4-Tier Memory** | Persistent Working, Episodic, Semantic RAG, and Procedural habits | Click **Memory** in sidebar |
+| **🧠 4-Tier Durable Memory** | Persistent Working, Episodic, Semantic RAG, and Procedural habits backed by SQLite queue | Click **Memory** in sidebar |
 | **👁️ Vision & Inspection** | Multimodal image understanding and OCR via LLaVA & PyTesseract | Click **Chat with Image** in studio or ask in chat |
 | **🔒 Security Authorization** | Cryptographic approval prompts for high-risk system commands | Triggers automatically on sensitive tools |
 | **⚡ Task DAG Engine** | Background multi-step autonomous workflows surviving reboots | Click **Tasks** tab in sidebar |

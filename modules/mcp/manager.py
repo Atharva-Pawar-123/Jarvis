@@ -79,8 +79,15 @@ class PluginManager:
         
         # Determine transport type
         if "command" in params:
-            # Stdio transport
+            # Stdio transport — verify the command binary exists first
             cmd = params["command"]
+            import shutil
+            if not shutil.which(cmd):
+                logger.info(
+                    f"MCP Server '{name}' skipped: command '{cmd}' not found on PATH. "
+                    f"Install it to enable this plugin."
+                )
+                return
             args = params.get("args", [])
             env = params.get("env", None)
             transport = StdioTransport(command=cmd, args=args, env=env)
@@ -93,14 +100,17 @@ class PluginManager:
             logger.warning(f"Invalid config for MCP server '{name}': Must specify 'command' or 'url'.")
             return
 
-        client = MCPClient(name=name, transport=transport)
-        if client.connect():
-            # Discover tools immediately upon connection
-            tools = client.discover_tools()
-            self.clients[name] = client
-            logger.info(f"MCP Server '{name}' connected successfully. Exposes {len(tools)} tools.")
-        else:
-            logger.error(f"Failed to connect to MCP Server '{name}'.")
+        try:
+            client = MCPClient(name=name, transport=transport)
+            if client.connect():
+                # Discover tools immediately upon connection
+                tools = client.discover_tools()
+                self.clients[name] = client
+                logger.info(f"MCP Server '{name}' connected successfully. Exposes {len(tools)} tools.")
+            else:
+                logger.warning(f"MCP Server '{name}' could not be connected. It will be skipped.")
+        except Exception as exc:
+            logger.warning(f"MCP Server '{name}' startup failed: {exc}. Skipping.")
 
     def _aggregate_tools(self) -> None:
         """Update the flattened list of all available tools across all servers."""

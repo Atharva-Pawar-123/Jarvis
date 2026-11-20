@@ -79,7 +79,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -1760,6 +1760,11 @@ async def startup():
 hud_dir = JARVIS_ROOT / "hud"
 if hud_dir.exists():
     app.mount("/hud", StaticFiles(directory=str(hud_dir), html=True), name="hud")
+
+# Mount storage directory for serving images, videos, and other media assets
+storage_dir = JARVIS_ROOT / "storage"
+if storage_dir.exists():
+    app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
 
 if __name__ == "__main__":

@@ -782,16 +782,29 @@ export default function ImageGenView() {
                   {/* Miniature Cards Preview (Grok 3-image miniature strip) */}
                   <div className="grid grid-cols-3 gap-1 mb-2 h-14 rounded-lg overflow-hidden bg-slate-950/60 p-0.5 border border-slate-800">
                     {sess.thumbnails && sess.thumbnails.length > 0 ? (
-                      sess.thumbnails.map((t, idx) => (
-                        <div key={idx} className="w-full h-full bg-slate-800 relative overflow-hidden rounded">
-                          <img
-                            src={t.filepath?.startsWith('data:') ? t.filepath : `${API_BASE}/${t.filepath}`}
-                            alt="preview"
-                            className="w-full h-full object-cover"
-                            onError={(e) => { e.target.style.display = 'none' }}
-                          />
-                        </div>
-                      ))
+                      sess.thumbnails.map((t, idx) => {
+                        let src = t.filepath || ''
+                        if (src && !src.startsWith('data:') && !src.startsWith('http')) {
+                          // Normalize Windows backslashes
+                          const norm = src.replace(/\\/g, '/')
+                          const idxStorage = norm.indexOf('storage/')
+                          if (idxStorage !== -1) {
+                            src = `${API_BASE}/${norm.slice(idxStorage)}`
+                          } else {
+                            src = `${API_BASE}/${norm}`
+                          }
+                        }
+                        return (
+                          <div key={idx} className="w-full h-full bg-slate-800 relative overflow-hidden rounded">
+                            <img
+                              src={src}
+                              alt="preview"
+                              className="w-full h-full object-cover"
+                              onError={(e) => { e.target.style.display = 'none' }}
+                            />
+                          </div>
+                        )
+                      })
                     ) : (
                       <div className="col-span-3 flex items-center justify-center text-[10px] text-slate-600 font-mono">
                         Empty Canvas
