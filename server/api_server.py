@@ -168,6 +168,7 @@ class ImageEditRequest(BaseModel):
     cfg_scale: Optional[float] = 7.0
     session_id: Optional[str] = None
     parent_asset_id: Optional[int] = None
+    reference_images: Optional[List[str]] = None
 
 class VisualSessionCreateRequest(BaseModel):
     session_id: Optional[str] = None
@@ -960,7 +961,8 @@ async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_
         req.steps or 20,
         req.cfg_scale or 7.0,
         "Euler a",
-        model_choice
+        model_choice,
+        req.reference_images
     )
 
     if not edited_bytes:

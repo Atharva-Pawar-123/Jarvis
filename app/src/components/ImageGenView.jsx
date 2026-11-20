@@ -90,6 +90,7 @@ export default function ImageGenView() {
   const [isRemovingBg, setIsRemovingBg] = useState(false)
   const [isReplacingBg, setIsReplacingBg] = useState(false)
   const [isOutpainting, setIsOutpainting] = useState(false)
+  const [referenceImages, setReferenceImages] = useState([]) // array of base64 strings (up to 5)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
@@ -403,7 +404,8 @@ export default function ImageGenView() {
         model: selectedEditModel,
         steps: steps,
         session_id: activeVisualSessionId,
-        parent_asset_id: activeAssetId
+        parent_asset_id: activeAssetId,
+        reference_images: referenceImages.length > 0 ? referenceImages : undefined
       })
 
       const dataUrl = `data:image/png;base64,${res.data.image_base64}`
@@ -1180,6 +1182,50 @@ export default function ImageGenView() {
             {/* Floating Edit Console */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4 z-20">
               <div className="bg-[#0A182E]/90 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col gap-2">
+                {/* Reference Images Tray (Up to 5 References) */}
+                {referenceImages.length > 0 && (
+                  <div className="flex items-center gap-2 pb-1 border-b border-cyan-500/15 overflow-x-auto">
+                    <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1">
+                      <Layers className="w-2.5 h-2.5" />
+                      Ref Deck ({referenceImages.length}/5):
+                    </span>
+                    {referenceImages.map((img, idx) => (
+                      <div key={idx} className="relative group shrink-0">
+                        <img
+                          src={img}
+                          alt={`ref-${idx}`}
+                          className="w-8 h-8 rounded border border-cyan-400/40 object-cover"
+                        />
+                        <button
+                          onClick={() => setReferenceImages((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500/80 text-white text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {referenceImages.length < 5 && (
+                      <label className="w-8 h-8 rounded border border-dashed border-cyan-500/40 hover:border-cyan-400 flex items-center justify-center text-cyan-400 cursor-pointer shrink-0 text-xs">
+                        +
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) {
+                              const reader = new FileReader()
+                              reader.onload = (ev) => {
+                                setReferenceImages((prev) => [...prev, ev.target.result].slice(0, 5))
+                              }
+                              reader.readAsDataURL(file)
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                )}
                 <textarea
                   value={editPrompt}
                   onChange={(e) => setEditPrompt(e.target.value)}
@@ -1316,6 +1362,33 @@ export default function ImageGenView() {
                         </button>
                       </div>
                     )}
+                    {/* Multi-Reference Add Pill */}
+                    <label
+                      className={`px-2.5 py-1 rounded-lg border font-mono text-[11px] flex items-center gap-1.5 transition-all cursor-pointer ${
+                        referenceImages.length > 0
+                          ? 'bg-indigo-500/20 border-indigo-400 text-indigo-300'
+                          : 'bg-slate-900 border-cyan-500/20 text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Add up to 5 reference images for multi-style conditioning"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Ref Image {referenceImages.length > 0 && `(${referenceImages.length})`}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            const reader = new FileReader()
+                            reader.onload = (ev) => {
+                              setReferenceImages((prev) => [...prev, ev.target.result].slice(0, 5))
+                            }
+                            reader.readAsDataURL(file)
+                          }
+                        }}
+                      />
+                    </label>
                   </div>
 
                   <button

@@ -11,7 +11,7 @@ import base64
 import logging
 import requests
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from PIL import Image, ImageOps
 
 import config
@@ -106,10 +106,12 @@ class ImageEditEngine:
         steps: int = 20,
         cfg_scale: float = 7.0,
         sampler_name: str = "Euler a",
-        model_checkpoint: Optional[str] = None
+        model_checkpoint: Optional[str] = None,
+        reference_images: Optional[List[str]] = None
     ) -> Optional[bytes]:
         """
-        Executes img2img, localized inpainting, or ControlNet IP2P instruction edit via SD-Forge.
+        Executes img2img, localized inpainting, ControlNet IP2P, or Multi-Reference editing via SD-Forge.
+        Supports up to 5 reference images via ControlNet units or chained conditioning.
         """
         # Clean clean base64 data URLs if present
         if "base64," in init_image_b64:
@@ -147,11 +149,11 @@ class ImageEditEngine:
             "resize_mode": 0, # Just resize
         }
 
-        # Check if model requested is a ControlNet model
-        controlnet_unit = None
+        # Handle ControlNet units (IP2P, inpaint, or Multi-Reference conditioning)
+        controlnet_units = []
+
         if model_checkpoint and "controlnet:" in model_checkpoint:
             cn_model_name = model_checkpoint.replace("controlnet:", "")
-            # Determine appropriate module
             if "ip2p" in cn_model_name.lower():
                 cn_module = "none"
             elif "inpaint" in cn_model_name.lower():
@@ -161,19 +163,14 @@ class ImageEditEngine:
             else:
                 cn_module = "none"
 
-            controlnet_unit = {
+            controlnet_units.append({
                 "enabled": True,
                 "module": cn_module,
                 "model": cn_model_name,
                 "weight": 1.0,
                 "resize_mode": "Just Resize",
                 "control_mode": "Balanced",
-            }
-            payload["alwayson_scripts"] = {
-                "controlnet": {
-                    "args": [controlnet_unit]
-                }
-            }
+            })
         elif model_checkpoint:
             actual_cp = model_checkpoint.replace("local:", "")
             try:
@@ -184,6 +181,27 @@ class ImageEditEngine:
                 )
             except Exception as e:
                 logger.warning(f"Failed to switch model checkpoint for img2img: {e}")
+
+        # Add multi-reference units (up to 5 reference images)
+        if reference_images:
+            for idx, ref_img in enumerate(reference_images[:5]):
+                clean_ref = ref_img.split("base64,")[1] if "base64," in ref_img else ref_img
+                controlnet_units.append({
+                    "enabled": True,
+                    "input_image": clean_ref,
+                    "module": "none",
+                    "model": "control_v11e_sd15_ip2p_fp16" if "ip2p" in str(model_checkpoint) else "none",
+                    "weight": 0.8,
+                    "resize_mode": "Crop and Resize",
+                    "control_mode": "Balanced",
+                })
+
+        if controlnet_units:
+            payload["alwayson_scripts"] = {
+                "controlnet": {
+                    "args": controlnet_units
+                }
+            }
 
         if clean_mask:
             payload["mask"] = clean_mask
