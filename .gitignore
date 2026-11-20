@@ -29,6 +29,7 @@ scratch/
 # Data & Models (Do NOT push large model checkpoints)
 data/
 models/
+storage/
 
 # Tools & Large Binaries
 tools/
