@@ -46,6 +46,7 @@ INPUT_DEVICE_INDEX = None  # None uses system default mic
 DATA_DIR         = BASE_DIR / "data"
 LOGS_DIR         = BASE_DIR / "logs"
 PROJECTS_DIR     = BASE_DIR / "projects"
+STORAGE_DIR      = BASE_DIR / "storage"
 IMAGES_DIR       = BASE_DIR / "generated_images"
 MODELS_DIR       = BASE_DIR / "models"
 CHROMA_DIR       = DATA_DIR / "chroma"

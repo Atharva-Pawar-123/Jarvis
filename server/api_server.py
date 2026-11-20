@@ -864,12 +864,12 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
 
 
 # ── Image Studio Pro Endpoints (Upload, Edit, Sessions, Library) ───────
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Form
 
 @app.post("/api/image/upload")
 async def upload_image_api(
     file: UploadFile = File(...),
-    session_id: Optional[str] = None,
+    session_id: Optional[str] = Form(None),
     rt: JarvisRuntime = Depends(get_runtime)
 ):
     if not rt.image_edit or not rt.image_studio_db:
@@ -918,9 +918,8 @@ async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_
     except Exception as e:
         logger.warning(f"GPU scheduler park failed: {e}")
 
-    checkpoint_title = None
-    if req.model and req.model.startswith("local:"):
-        checkpoint_title = req.model[len("local:"):]
+    # Forward model spec (whether local: or controlnet:) directly to edit engine
+    model_choice = req.model or "local"
 
     edited_bytes = await asyncio.to_thread(
         rt.image_edit.edit_image,
@@ -932,7 +931,7 @@ async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_
         req.steps or 20,
         req.cfg_scale or 7.0,
         "Euler a",
-        checkpoint_title
+        model_choice
     )
 
     if not edited_bytes:

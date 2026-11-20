@@ -12,17 +12,21 @@ import logging
 import requests
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-from PIL import Image
+from PIL import Image, ImageOps
 
 import config
 
 logger = logging.getLogger(__name__)
 
+# Security: Max dimension and decompress bomb safety
+Image.MAX_IMAGE_PIXELS = 40_000_000
+
 class ImageEditEngine:
     def __init__(self):
         self.local_url = getattr(config, "SD_LOCAL_URL", "http://127.0.0.1:7860")
-        self.save_dir = Path("d:/JARVIS/storage/images/edited")
-        self.upload_dir = Path("d:/JARVIS/storage/images/uploaded")
+        storage_base = getattr(config, "STORAGE_DIR", Path(config.BASE_DIR) / "storage")
+        self.save_dir = storage_base / "images" / "edited"
+        self.upload_dir = storage_base / "images" / "uploaded"
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -56,7 +60,22 @@ class ImageEditEngine:
         Validates, strips unsafe EXIF, converts to standard sRGB, saves to disk,
         and returns (filepath, base64_str, width, height).
         """
-        image = Image.open(io.BytesIO(file_bytes))
+        # Strict validation on upload byte size (max 25MB)
+        if len(file_bytes) > 25 * 1024 * 1024:
+            raise ValueError("Upload exceeds maximum allowed size (25MB).")
+
+        try:
+            image = Image.open(io.BytesIO(file_bytes))
+            # Format validation
+            if (image.format or "").upper() not in ("PNG", "JPEG", "JPG", "WEBP"):
+                raise ValueError(f"Unsupported image format: {image.format}. Only PNG, JPEG, WEBP are accepted.")
+            # Auto-orient EXIF metadata if present
+            image = ImageOps.exif_transpose(image)
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f"Corrupted or invalid image payload: {e}")
+
         if image.mode != "RGB":
             image = image.convert("RGB")
 

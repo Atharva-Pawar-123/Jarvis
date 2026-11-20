@@ -72,3 +72,50 @@ def test_image_edit_engine_save_uploaded_image(tmp_path):
     assert len(b64_str) > 0
     assert w == 200
     assert h == 200
+
+
+def test_upload_security_and_format_validation(tmp_path):
+    engine = ImageEditEngine()
+    engine.upload_dir = tmp_path / "uploads"
+    engine.upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Reject non-image fake payload
+    fake_bytes = b"This is not a real image file."
+    with pytest.raises(ValueError, match="Corrupted or invalid image payload"):
+        engine.save_uploaded_image(fake_bytes, "fake.txt")
+
+    # 2. Reject payload exceeding 25MB limit
+    oversized = b"0" * (26 * 1024 * 1024)
+    with pytest.raises(ValueError, match="exceeds maximum allowed size"):
+        engine.save_uploaded_image(oversized, "big.png")
+
+
+def test_foreign_key_and_cascade_behavior(temp_studio_db):
+    # Verify foreign key enforcement: deleting parent asset should set parent_asset_id to NULL
+    sess = temp_studio_db.create_session("vis_fk_test", "Lineage FK Test")
+    
+    asset1 = temp_studio_db.add_asset(
+        asset_type="uploaded",
+        filepath="d:/fake/fk1.png",
+        session_id="vis_fk_test",
+        prompt="Parent image"
+    )
+    asset2 = temp_studio_db.add_asset(
+        asset_type="edited",
+        filepath="d:/fake/fk2.png",
+        session_id="vis_fk_test",
+        prompt="Child image",
+        parent_asset_id=asset1["id"]
+    )
+    assert asset2["parent_asset_id"] == asset1["id"]
+
+    # Delete parent asset
+    temp_studio_db.delete_asset(asset1["id"])
+    
+    # Reload session and verify child still exists with parent_asset_id set to None/NULL
+    session_data = temp_studio_db.get_session("vis_fk_test")
+    remaining_assets = session_data["assets"]
+    assert len(remaining_assets) == 1
+    assert remaining_assets[0]["id"] == asset2["id"]
+    assert remaining_assets[0]["parent_asset_id"] is None
+

@@ -166,7 +166,10 @@ export default function ImageGenView() {
       const res = await axios.get(`${API_BASE}/api/image/sessions`)
       const list = res.data.sessions || []
       setVisualSessions(list)
-      if (list.length > 0 && !activeVisualSessionId) {
+      const savedSid = localStorage.getItem('jarvis_active_visual_session')
+      if (savedSid && list.some((s) => s.session_id === savedSid)) {
+        loadVisualSession(savedSid)
+      } else if (list.length > 0 && !activeVisualSessionId) {
         loadVisualSession(list[0].session_id)
       }
     } catch (e) {
@@ -177,6 +180,7 @@ export default function ImageGenView() {
   const loadVisualSession = async (sid) => {
     try {
       setActiveVisualSessionId(sid)
+      localStorage.setItem('jarvis_active_visual_session', sid)
       const res = await axios.get(`${API_BASE}/api/image/sessions/${sid}`)
       const sess = res.data
       if (sess && sess.assets) {
@@ -191,6 +195,7 @@ export default function ImageGenView() {
           setInitImage(formatted[formatted.length - 1].image)
           setActiveAssetId(formatted[formatted.length - 1].id)
         } else {
+          setInitImage(null)
           setActiveAssetId(null)
         }
       }
@@ -353,7 +358,8 @@ export default function ImageGenView() {
         denoising_strength: denoisingStrength,
         model: selectedEditModel,
         steps: steps,
-        session_id: activeVisualSessionId
+        session_id: activeVisualSessionId,
+        parent_asset_id: activeAssetId
       })
 
       const dataUrl = `data:image/png;base64,${res.data.image_base64}`
