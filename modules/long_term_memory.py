@@ -4,6 +4,7 @@ import threading
 import datetime
 import uuid
 import os
+import queue
 import chromadb
 from rank_bm25 import BM25Okapi
 
@@ -28,8 +29,14 @@ class HybridRAGMemory:
         self.bm25_metadata = [] # stores dicts: {"text": str, "source": str, "metadata": dict}
         self.bm25_index = None
         self._load_bm25()
+
+        # Durable Background Memory Task Queue
+        self._task_queue = queue.Queue()
+        self._worker_thread = threading.Thread(target=self._process_memory_queue, daemon=True)
+        self._worker_thread.start()
+        self.last_extraction_status = {"status": "idle", "timestamp": None, "extracted_count": 0}
         
-        logging.info("HybridRAGMemory initialized successfully.")
+        logging.info("HybridRAGMemory initialized successfully with durable task worker.")
 
     def _load_bm25(self):
         if config.BM25_CORPUS.exists():
@@ -246,44 +253,61 @@ class HybridRAGMemory:
             context_str += f"- {r['text']}\n"
         return context_str.strip()
 
-    def extract_and_store_facts(self, user_text: str, assistant_response: str):
-        """Runs in background to extract learnable facts from the conversation turn."""
-        def _extract_task():
-            prompt = [
-                {"role": "system", "content": (
-                    "Extract any learnable facts, preferences, or important information from this exchange. "
-                    "Return a JSON array of fact strings. Max 3 facts. "
-                    "Return [] if nothing worth storing. Return ONLY the JSON array. No markdown."
-                )},
-                {"role": "user", "content": f"User: {user_text}\nJARVIS: {assistant_response}"}
-            ]
+    def _process_memory_queue(self):
+        """Worker that sequentially extracts and indexes memory tasks safely."""
+        while True:
             try:
-                res = self.llm._generate_blocking(prompt, self.llm.FAST_MODEL)
-                import json, re
-                
-                # Cleanup markdown and parse
-                res = res.strip()
-                if res.startswith("```json"): res = res[7:]
-                if res.startswith("```"): res = res[3:]
-                if res.endswith("```"): res = res[:-3]
-                
-                try:
-                    facts = json.loads(res.strip())
-                except json.JSONDecodeError:
-                    match = re.search(r'\[.*\]', res, re.DOTALL)
-                    if match:
-                        facts = json.loads(match.group(0))
-                    else:
-                        facts = []
-                        
-                if isinstance(facts, list):
-                    for fact in facts:
-                        if isinstance(fact, str) and len(fact) > 5:
-                            self.add_fact(fact)
+                task = self._task_queue.get()
+                if task is None:
+                    break
+                user_text, assistant_response = task
+                self._run_extraction(user_text, assistant_response)
+                self._task_queue.task_done()
             except Exception as e:
-                logging.warning(f"Fact extraction failed in background: {e}")
+                logging.error(f"Error in memory queue worker: {e}")
 
-        threading.Thread(target=_extract_task, daemon=True).start()
+    def _run_extraction(self, user_text: str, assistant_response: str):
+        prompt = [
+            {"role": "system", "content": (
+                "Extract any learnable facts, preferences, or important information from this exchange. "
+                "Return a JSON array of fact strings. Max 3 facts. "
+                "Return [] if nothing worth storing. Return ONLY the JSON array. No markdown."
+            )},
+            {"role": "user", "content": f"User: {user_text}\nJARVIS: {assistant_response}"}
+        ]
+        try:
+            self.last_extraction_status = {"status": "processing", "timestamp": datetime.datetime.now().isoformat(), "extracted_count": 0}
+            res = self.llm._generate_blocking(prompt, self.llm.FAST_MODEL)
+            import json, re
+            
+            res = res.strip()
+            if res.startswith("```json"): res = res[7:]
+            if res.startswith("```"): res = res[3:]
+            if res.endswith("```"): res = res[:-3]
+            
+            try:
+                facts = json.loads(res.strip())
+            except json.JSONDecodeError:
+                match = re.search(r'\[.*\]', res, re.DOTALL)
+                if match:
+                    facts = json.loads(match.group(0))
+                else:
+                    facts = []
+                    
+            count = 0
+            if isinstance(facts, list):
+                for fact in facts:
+                    if isinstance(fact, str) and len(fact) > 5:
+                        self.add_fact(fact)
+                        count += 1
+            self.last_extraction_status = {"status": "completed", "timestamp": datetime.datetime.now().isoformat(), "extracted_count": count}
+        except Exception as e:
+            self.last_extraction_status = {"status": "failed", "error": str(e), "timestamp": datetime.datetime.now().isoformat(), "extracted_count": 0}
+            logging.warning(f"Fact extraction failed: {e}")
+
+    def extract_and_store_facts(self, user_text: str, assistant_response: str):
+        """Queues a memory fact extraction task onto the durable worker queue."""
+        self._task_queue.put((user_text, assistant_response))
 
     def clear_all(self):
         # We delete by recreating the DB or wiping data

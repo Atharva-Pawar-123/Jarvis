@@ -17,11 +17,11 @@ import tempfile
 import base64
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect, HTTPException,
-    UploadFile, File, Header, Request, Depends
+    UploadFile, File, Form, Body, Header, Request, Depends
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -567,6 +567,19 @@ async def clear_memory(x_confirm: Optional[str] = Header(None), rt: JarvisRuntim
         return {"cleared": True}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.get("/api/memory/status")
+async def get_memory_extraction_status(rt: JarvisRuntime = Depends(get_runtime)):
+    if not rt.memory:
+        return {"status": "uninitialized"}
+    queue_size = getattr(rt.memory, "_task_queue", None)
+    q_len = queue_size.qsize() if queue_size else 0
+    last_status = getattr(rt.memory, "last_extraction_status", {"status": "idle"})
+    return {
+        "queue_length": q_len,
+        "last_status": last_status
+    }
 
 
 # ── 4-Tier Memory Endpoints ───────────────────────────────────────────
