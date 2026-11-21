@@ -291,7 +291,27 @@ class UnifiedAgentOrchestrator:
             messages.append({"role": "assistant", "content": response_clean})
             messages.append({"role": "user", "content": f"Observation for {action}:\n{observation}"})
 
-        # Exceeded step budget
+        # Exceeded step budget - ask the model for a best-effort summary of observations instead of giving up
+        try:
+            summary_prompt = messages + [
+                {
+                    "role": "user",
+                    "content": (
+                        "We have reached the maximum tool reasoning steps. Based on all information gathered and "
+                        "your existing knowledge, provide your final, complete, and polite answer to the user now. "
+                        "Do NOT request any further tool actions."
+                    )
+                }
+            ]
+            final_fallback = await asyncio.to_thread(self.llm.generate, summary_prompt, False)
+            if final_fallback and final_fallback.strip():
+                # Strip out any attempted tool blocks from final summary
+                cleaned_fallback = re.sub(r'```json\s*\{.*?\}\s*```', '', final_fallback, flags=re.DOTALL).strip()
+                if cleaned_fallback:
+                    return cleaned_fallback
+        except Exception as e:
+            logger.warning(f"Fallback synthesis after max steps failed: {e}")
+
         return "I apologize, sir, but I reached my maximum planning steps before finalizing the task."
 
     def _parse_json_action(self, text: str) -> Optional[Dict[str, Any]]:
