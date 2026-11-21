@@ -179,6 +179,21 @@ const useJarvisStore = create((set, get) => ({
   resetStream: () => set({ streamingContent: '', isStreaming: false, agentSteps: [] }),
 
   // ── Update session title (from WS title_update) ───────────────
+  renameSession: async (sessionId, newTitle) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      get().updateSessionTitle(sessionId, data.title)
+    } catch {
+      // Backend offline
+    }
+  },
+
   updateSessionTitle: (sessionId, title) =>
     set((s) => ({
       sessions: s.sessions.map((sess) =>

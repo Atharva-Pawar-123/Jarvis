@@ -279,6 +279,9 @@ async def list_models():
 
 
 # ── Sessions ──────────────────────────────────────────────────────────
+class RenameSessionRequest(BaseModel):
+    title: str
+
 @app.post("/api/sessions/new")
 async def create_session(req: NewSessionRequest, rt: JarvisRuntime = Depends(get_runtime)):
     sid = str(uuid.uuid4())
@@ -296,6 +299,19 @@ async def get_session(session_id: str, rt: JarvisRuntime = Depends(get_runtime))
     if not sess:
         raise HTTPException(404, "Session not found")
     return sess
+
+
+@app.patch("/api/sessions/{session_id}/title")
+async def update_session_title(session_id: str, req: RenameSessionRequest, rt: JarvisRuntime = Depends(get_runtime)):
+    clean_title = req.title.strip()[:60]
+    if not clean_title:
+        raise HTTPException(400, "Title cannot be empty")
+    rt.session_db.update_title(session_id, clean_title)
+    await rt.manager.send_to_session(session_id, {
+        "type": "title_update",
+        "title": clean_title,
+    })
+    return {"session_id": session_id, "title": clean_title}
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -453,20 +469,51 @@ async def send_message(req: MessageRequest, rt: JarvisRuntime = Depends(get_runt
     # 6. Append JARVIS response to SQLite
     rt.session_db.add_message(sid, "jarvis", response_text)
 
-    # 7. Auto-title first message
+    # 7. Intelligent Auto-Titling (ChatGPT/Claude style)
     sess = rt.session_db.get_session(sid)
-    if sess and len(sess.get("messages", [])) == 2:
-        try:
-            title = await asyncio.to_thread(
-                rt.llm.generate,
-                [{"role": "user", "content":
-                  f"Give this conversation a short 4-word title: {req.content}"}],
-                False, False, config.FAST_MODEL
-            )
-            clean_title = title.strip().strip('"').strip("'")[:50]
-            rt.session_db.update_title(sid, clean_title)
-        except Exception:
-            pass
+    if sess:
+        current_title = sess.get("title", "")
+        # Title on the first turn, or refine if still default
+        if current_title in ("New conversation", "New Conversation", "") or len(sess.get("messages", [])) == 2:
+            try:
+                title_prompt = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a concise conversation titling engine. Analyze the user request and assistant "
+                            "reply, then output a specific, informative title in 3 to 6 words maximum. "
+                            "Do NOT use quotes, do NOT use punctuation at the end, and do NOT include filler like 'Topic:' or 'Title:'. "
+                            "Examples:\n"
+                            "User: How do I implement quicksort in Python? -> Python QuickSort Implementation\n"
+                            "User: Help me write a resignation letter -> Professional Resignation Letter\n"
+                            "User: What is quantum entanglement? -> Quantum Entanglement Basics"
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"User: {req.content[:250]}\nAssistant: {response_text[:250]}"
+                    }
+                ]
+                title = await asyncio.to_thread(
+                    rt.llm.generate,
+                    title_prompt,
+                    False, False, config.FAST_MODEL
+                )
+                clean_title = title.strip().strip('"').strip("'").strip('`')
+                # Remove common LLM prefixes if any
+                for prefix in ("Title:", "Topic:", "Subject:", "Conversation:"):
+                    if clean_title.lower().startswith(prefix.lower()):
+                        clean_title = clean_title[len(prefix):].strip()
+                clean_title = clean_title[:50].strip()
+                if clean_title and len(clean_title) >= 3:
+                    rt.session_db.update_title(sid, clean_title)
+                    # Notify WebSocket clients in real-time
+                    await rt.manager.send_to_session(sid, {
+                        "type": "title_update",
+                        "title": clean_title,
+                    })
+            except Exception as e:
+                logger.warning(f"Intelligent auto-titling failed: {e}")
 
     # 8. Extract facts in background
     try:
@@ -1704,24 +1751,44 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                 # Append response to SQLite
                 rt.session_db.add_message(session_id, "jarvis", response_text)
 
-                # Auto-title on first conversation turn
+                # Auto-title on first conversation turn (ChatGPT/Claude style)
                 sess = rt.session_db.get_session(session_id)
-                if sess and len(sess.get("messages", [])) == 2:
-                    try:
-                        title = await asyncio.to_thread(
-                            rt.llm.generate,
-                            [{"role": "user", "content":
-                              f"Give this conversation a short 4-word title: {content}"}],
-                            False, False, config.FAST_MODEL
-                        )
-                        clean_title = title.strip().strip('"').strip("'")[:50]
-                        rt.session_db.update_title(session_id, clean_title)
-                        await ws.send_json({
-                            "type": "title_update",
-                            "title": clean_title,
-                        })
-                    except Exception:
-                        pass
+                if sess:
+                    current_title = sess.get("title", "")
+                    if current_title in ("New conversation", "New Conversation", "") or len(sess.get("messages", [])) == 2:
+                        try:
+                            title_prompt = [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are a concise conversation titling engine. Output a specific, informative "
+                                        "title in 3 to 6 words maximum summarizing the user request. "
+                                        "Do NOT use quotes, do NOT add punctuation at the end, and do NOT include filler."
+                                    )
+                                },
+                                {
+                                    "role": "user",
+                                    "content": f"User: {content[:250]}\nAssistant: {response_text[:250]}"
+                                }
+                            ]
+                            title = await asyncio.to_thread(
+                                rt.llm.generate,
+                                title_prompt,
+                                False, False, config.FAST_MODEL
+                            )
+                            clean_title = title.strip().strip('"').strip("'").strip('`')
+                            for prefix in ("Title:", "Topic:", "Subject:", "Conversation:"):
+                                if clean_title.lower().startswith(prefix.lower()):
+                                    clean_title = clean_title[len(prefix):].strip()
+                            clean_title = clean_title[:50].strip()
+                            if clean_title and len(clean_title) >= 3:
+                                rt.session_db.update_title(session_id, clean_title)
+                                await ws.send_json({
+                                    "type": "title_update",
+                                    "title": clean_title,
+                                })
+                        except Exception:
+                            pass
 
             elif event_type == "state_request":
                 await ws.send_json({"type": "state", "state": "idle"})
