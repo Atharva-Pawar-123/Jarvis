@@ -466,8 +466,19 @@ async def send_message(req: MessageRequest, rt: JarvisRuntime = Depends(get_runt
         logger.error(f"Orchestrator generation failed: {e}", exc_info=True)
         response_text = "I'm experiencing a temporary issue with my reasoning engine, sir. Please try again."
 
-    # 6. Append JARVIS response to SQLite
-    rt.session_db.add_message(sid, "jarvis", response_text)
+    # 6. Append JARVIS response to SQLite (sanitize away any raw unparsed JSON tool blocks)
+    clean_persisted_text = response_text
+    if clean_persisted_text.startswith("```json") and '"action":' in clean_persisted_text:
+        import re as _re
+        m = _re.search(r'"final_answer"\s*:\s*"(.*?)"', clean_persisted_text, _re.DOTALL)
+        if m:
+            clean_persisted_text = m.group(1).replace('\\"', '"').replace('\\n', '\n')
+        else:
+            m_thought = _re.search(r'"thought"\s*:\s*"(.*?)"', clean_persisted_text, _re.DOTALL)
+            if m_thought:
+                clean_persisted_text = m_thought.group(1).replace('\\"', '"').replace('\\n', '\n')
+
+    rt.session_db.add_message(sid, "jarvis", clean_persisted_text)
 
     # 7. Intelligent Auto-Titling (ChatGPT/Claude style)
     sess = rt.session_db.get_session(sid)
@@ -1743,13 +1754,24 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
                     response_text = f"I encountered an issue processing your request, sir: {e}"
 
                 # Send completion event
+                clean_completed_text = response_text
+                if clean_completed_text.startswith("```json") and '"action":' in clean_completed_text:
+                    import re as _re
+                    m = _re.search(r'"final_answer"\s*:\s*"(.*?)"', clean_completed_text, _re.DOTALL)
+                    if m:
+                        clean_completed_text = m.group(1).replace('\\"', '"').replace('\\n', '\n')
+                    else:
+                        m_thought = _re.search(r'"thought"\s*:\s*"(.*?)"', clean_completed_text, _re.DOTALL)
+                        if m_thought:
+                            clean_completed_text = m_thought.group(1).replace('\\"', '"').replace('\\n', '\n')
+
                 await ws.send_json({
                     "type": "complete",
-                    "content": response_text,
+                    "content": clean_completed_text,
                 })
 
                 # Append response to SQLite
-                rt.session_db.add_message(session_id, "jarvis", response_text)
+                rt.session_db.add_message(session_id, "jarvis", clean_completed_text)
 
                 # Auto-title on first conversation turn (ChatGPT/Claude style)
                 sess = rt.session_db.get_session(session_id)

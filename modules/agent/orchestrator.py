@@ -57,9 +57,12 @@ class UnifiedAgentOrchestrator:
         system_instruction = (
             "You are JARVIS, an autonomous intelligence system. You accomplish tasks using your available tools.\n\n"
             f"AVAILABLE TOOLS SPECIFICATION (JSON Schema):\n{tool_prompt}\n\n"
-            "INSTRUCTIONS:\n"
-            "1. If you can answer directly without any tool, respond with a direct helpful answer.\n"
-            "2. If you need a tool, emit a JSON block in this EXACT format:\n"
+            "CRITICAL OPERATING RULES:\n"
+            "1. DIRECT ANSWERS FIRST: If the user is asking an explanation, advice, conversational question, "
+            "conceptual query, or general programming inquiry, do NOT call any tools. Provide your complete, helpful answer directly in natural conversational prose.\n"
+            "2. NEVER USE `execute_code` TO TALK: The `execute_code` tool is strictly for running computational scripts "
+            "to perform math, data processing, or file manipulation. NEVER call `execute_code` to print messages or ask questions to the user.\n"
+            "3. WHEN TOOLS ARE NEEDED: If and only if a specific tool action is strictly required (e.g. opening an app, checking system status, searching documents), emit a JSON block in this EXACT format:\n"
             "```json\n"
             "{\n"
             '  "thought": "Reasoning on what to do next",\n'
@@ -67,8 +70,7 @@ class UnifiedAgentOrchestrator:
             '  "action_input": {"param_key": "param_value"}\n'
             "}\n"
             "```\n"
-            "3. After an action is executed, you will observe the result and plan the next step.\n"
-            "4. When finished, emit:\n"
+            "4. AFTER OBSERVING RESULTS: When ready with the final response, emit:\n"
             "```json\n"
             "{\n"
             '  "thought": "Task is complete.",\n'
@@ -185,6 +187,19 @@ class UnifiedAgentOrchestrator:
 
             if not action:
                 return response_clean
+
+            # Guard against misuse of execute_code as a communication channel
+            if action == "execute_code":
+                code_snippet = str(action_input.get("code", "")).strip()
+                if (
+                    code_snippet.startswith("print(") or
+                    code_snippet.startswith("import sys; print(")
+                ) and len(code_snippet) < 300 and not any(k in code_snippet for k in ("def ", "class ", "for ", "while ", "open(")):
+                    # Extract the message inside print(...)
+                    import re as _re
+                    m = _re.search(r"print\([fFrRuU]?['\"](.*?)['\"]\)", code_snippet, _re.DOTALL)
+                    if m:
+                        return m.group(1).replace("\\'", "'").replace('\\"', '"')
 
             # Prevent duplicate calls in the same loop
             action_key = f"{action}:{json.dumps(action_input, sort_keys=True)}"
