@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.0.2)
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.1)
 
 ---
 
@@ -7,7 +7,12 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the rollout of **V3.0.2 Reliability & Engineering Quality Release**, JARVIS addresses critical implementation gaps identified during architectural reviews:
+With the rollout of **V3.1 Architecture & Hardening Release**, JARVIS addresses critical implementation gaps and achieves full regression stability:
+- **Resilient ControlNet Integration**: Fuzzy model name matching and isolated unit execution guards in SD WebUI Forge prevent crashes from missing hash suffixes or unhandled preprocessor states.
+- **Strict Pydantic V2 Schema Validation**: Standardized model list responses across local diffusion APIs (`GET /sdapi/v1/sd-models`) with default fallbacks, preventing HTTP 500 response validation errors.
+- **Modernized Backend Lifespan**: Upgraded FastAPI server to use structured lifespan handlers with dynamic test-mode decoupling (`JARVIS_TESTING=1`).
+- **Modernized Document & Memory Pipelines**: Replaced legacy PyMuPDF imports (`fitz` -> `pymupdf`) and removed all dead cloud generation references (e.g., Pollinations AI).
+- **100% Passing Test Suite**: Comprehensive 95-test suite covering agent reasoning, tools, security gates, memory systems, and image workflows.
 - **Imagine Video Studio (V3.0 Motion Engine)**: Calibrated for 6GB consumer GPUs, synthesizing fluid cinematic camera motion clips (zoom in, zoom out, pan, drift) from keyframes into MP4/WEBM with exact filesystem path alignment and an interactive looping preview player.
 - **Dedicated Video Asset Library**: Full `<video>` element support in the Library gallery with live hover-to-play scrubbing, video type filtering (`video`), and one-click playback in the Imagine preview modal.
 - **True Foreground Segmentation**: Advanced OpenCV GrabCut foreground isolation with ControlNet ADE20K semantic fallback, replacing color-threshold heuristics for robust subject cutouts and background replacement.
@@ -159,12 +164,13 @@ cd D:\JARVIS\tools\forge
 
 ### Step 5: Running the Automated Test Suite
 
-To verify system integrity, run the complete 48-test regression suite:
+To verify system integrity, run the complete 95-test regression suite:
 
 ```powershell
 cd D:\JARVIS
 .\venv\Scripts\Activate.ps1
-pytest -q tests/v2/
+$env:JARVIS_TESTING="1"
+pytest -q tests/
 ```
 
 ---
