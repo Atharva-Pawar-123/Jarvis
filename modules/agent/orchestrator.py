@@ -11,16 +11,19 @@ import logging
 import asyncio
 import re
 from typing import Dict, Any, List, Optional, Callable
+from dataclasses import dataclass, field
 from modules.agent.tool_registry import StructuredToolRegistry, ToolExecutionResult
 from modules.security.permission_engine import PermissionEngine
 
 logger = logging.getLogger(__name__)
 
 
-class AgentStep(BaseModel := type("BaseModel", (), {})):
+@dataclass
+class AgentStep:
+    """Represents a single step in the agent reasoning loop."""
     thought: str = ""
     tool: Optional[str] = None
-    tool_input: Dict[str, Any] = {}
+    tool_input: Dict[str, Any] = field(default_factory=dict)
     observation: Optional[str] = None
     is_final: bool = False
     final_answer: Optional[str] = None

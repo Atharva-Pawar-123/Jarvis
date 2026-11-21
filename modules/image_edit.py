@@ -316,11 +316,12 @@ class ImageEditEngine:
         }
         try:
             self._ensure_forge_running()
+            # Longer timeout for segmentation: Forge may need to load preprocessor models
             res = requests.post(
                 f"{self.local_url}/controlnet/detect",
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=60
+                timeout=120
             )
             if res.status_code == 200:
                 data = res.json()
@@ -328,6 +329,9 @@ class ImageEditEngine:
                 if images:
                     return base64.b64decode(images[0])
             logger.error(f"ControlNet segment failed with status {res.status_code}: {res.text[:200]}")
+            return None
+        except requests.exceptions.ReadTimeout:
+            logger.error("ControlNet segment timed out — Forge may still be loading preprocessor models")
             return None
         except Exception as e:
             logger.error(f"ControlNet segment exception: {e}")

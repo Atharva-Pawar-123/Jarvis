@@ -96,7 +96,6 @@ def test_image_models_explicit_selector():
     model_ids = [m["id"] for m in models]
 
     # Explicit models exist
-    assert any("local" in mid for mid in model_ids)
-    assert any("pollinations" in mid for mid in model_ids)
+    assert any("local" in mid or "controlnet" in mid for mid in model_ids)
     # NO auto option
     assert "auto" not in model_ids

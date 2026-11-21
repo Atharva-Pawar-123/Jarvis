@@ -14,7 +14,7 @@ class TestCodeInterpreter(unittest.TestCase):
         code = "print('success_test')"
         result = self.engine.execute_python(code)
         self.assertTrue(result['success'])
-        self.assertEqual(result['output'], "success_test")
+        self.assertEqual(result['output'].strip(), "success_test")
 
     def test_execute_python_error(self):
         code = "print(1/0)"

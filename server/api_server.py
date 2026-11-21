@@ -73,6 +73,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:8080",
     "http://127.0.0.1:8080",
     "electron://*",
+    "file://*",
 ]
 
 app.add_middleware(
@@ -1751,16 +1752,23 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# STARTUP & RUN
+# STARTUP & RUN (Lifespan — replaces deprecated @app.on_event)
 # ═══════════════════════════════════════════════════════════════════════
 
-@app.on_event("startup")
-async def startup():
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Modern lifespan event handler: initialises JarvisRuntime on startup."""
     logger.info("JARVIS API server initializing runtime container...")
     runtime = JarvisRuntime()
     await runtime.boot()
-    app.state.jarvis = runtime
+    application.state.jarvis = runtime
     logger.info("JARVIS API ready on http://127.0.0.1:8080")
+    yield
+    # Shutdown phase (currently nothing to clean up)
+
+app.router.lifespan_context = None
 
 
 # Mount HUD static files

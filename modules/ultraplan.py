@@ -3,10 +3,18 @@ import threading
 import queue
 from typing import Any, Callable, List
 from pydantic import BaseModel, Field
-import instructor
-from openai import OpenAI
 
 import config
+
+# Lazy-import OpenAI + instructor: the installed openai package may be v0.x
+# (which has no OpenAI class) or absent entirely.  Deferring avoids crashing
+# test-collection and other modules that import this file indirectly.
+try:
+    from openai import OpenAI as _OpenAI
+    import instructor as _instructor
+except ImportError:
+    _OpenAI = None
+    _instructor = None
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +41,12 @@ class WorkerAgent(threading.Thread):
         
         try:
             # We use the blocking generation method since workers run in background
-            result = self.llm._generate_blocking(messages, self.llm.PRIMARY_MODEL)
+            if hasattr(self.llm, "_generate_blocking"):
+                result = self.llm._generate_blocking(messages, getattr(self.llm, "PRIMARY_MODEL", "qwen2.5:7b"))
+            elif hasattr(self.llm, "generate"):
+                result = self.llm.generate(messages)
+            else:
+                result = str(self.llm)
             logger.info(f"[Worker {self.task_id}] Completed task.")
             self.result_queue.put({"task_id": self.task_id, "status": "success", "result": result})
         except Exception as e:
@@ -51,13 +64,17 @@ class UltraPlanCoordinator:
         self.hud_callback = hud_callback
         
         # Initialize instructor for guaranteed JSON output from Ollama
-        self.instructor_client = instructor.from_openai(
-            OpenAI(
-                base_url=f"{config.OLLAMA_HOST}/v1",
-                api_key="ollama"
-            ),
-            mode=instructor.Mode.JSON
-        )
+        if _OpenAI is not None and _instructor is not None:
+            self.instructor_client = _instructor.from_openai(
+                _OpenAI(
+                    base_url=f"{config.OLLAMA_HOST}/v1",
+                    api_key="ollama"
+                ),
+                mode=_instructor.Mode.JSON
+            )
+        else:
+            self.instructor_client = None
+            logger.warning("OpenAI/instructor libraries unavailable; UltraPlan JSON-mode disabled.")
 
     def execute_plan_async(self, user_query: str):
         """Spawns a background thread so the main JARVIS loop isn't blocked."""
@@ -78,17 +95,31 @@ class UltraPlanCoordinator:
             )
             
             try:
-                plan = self.instructor_client.chat.completions.create(
-                    model=self.llm.PRIMARY_MODEL,
-                    response_model=TaskPlan,
-                    messages=[
+                if self.instructor_client is not None:
+                    plan = self.instructor_client.chat.completions.create(
+                        model=getattr(self.llm, "PRIMARY_MODEL", "qwen2.5:7b"),
+                        response_model=TaskPlan,
+                        messages=[
+                            {"role": "user", "content": plan_prompt}
+                        ]
+                    )
+                    tasks = plan.sub_tasks
+                else:
+                    # Fallback to LLM breakdown if instructor is unavailable
+                    decomp_messages = [
+                        {"role": "system", "content": "You are an Orchestrator AI. Break the goal down into 1 to 3 distinct sub-tasks, one per line starting with a dash."},
                         {"role": "user", "content": plan_prompt}
                     ]
-                )
-                tasks = plan.sub_tasks
+                    if hasattr(self.llm, "_generate_blocking"):
+                        decomp_text = self.llm._generate_blocking(decomp_messages, getattr(self.llm, "PRIMARY_MODEL", "qwen2.5:7b"))
+                    elif hasattr(self.llm, "generate"):
+                        decomp_text = self.llm.generate(decomp_messages)
+                    else:
+                        decomp_text = ""
+                    tasks = [line.strip("- *").strip() for line in decomp_text.strip().split("\n") if line.strip("- *").strip()]
             except Exception as e:
-                logger.error(f"Instructor JSON parsing failed: {e}")
-                tasks = [query] # Fallback to single task if instructor fails
+                logger.error(f"Goal decomposition failed: {e}")
+                tasks = [query] # Fallback to single task if parsing fails
                 
             if not tasks:
                 tasks = [query]
@@ -126,7 +157,12 @@ class UltraPlanCoordinator:
                 {"role": "user", "content": synthesis_prompt}
             ]
             
-            final_result = self.llm._generate_blocking(synthesis_messages, self.llm.PRIMARY_MODEL)
+            if hasattr(self.llm, "_generate_blocking"):
+                final_result = self.llm._generate_blocking(synthesis_messages, getattr(self.llm, "PRIMARY_MODEL", "qwen2.5:7b"))
+            elif hasattr(self.llm, "generate"):
+                final_result = self.llm.generate(synthesis_messages)
+            else:
+                final_result = "Synthesized plan completed."
 
             # Complete
             self._notify("Sir, the Multi-Agent Orchestrator session is complete.")

@@ -25,8 +25,7 @@ class CanonicalTool(BaseModel):
     permission_category: str = "custom"
     timeout_seconds: int = 15
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class ToolExecutionResult(BaseModel):

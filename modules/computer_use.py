@@ -89,12 +89,37 @@ class WindowsComputerUse:
 class PlaywrightBrowserAgent:
     """Deterministic browser agent using Playwright without mouse hijacking."""
 
+    # Private/loopback IP patterns that must never be navigated to (SSRF prevention)
+    _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
+
     def __init__(self):
         self._browser = None
+
+    @staticmethod
+    def _is_private_ip(hostname: str) -> bool:
+        """Returns True if hostname resolves to a private / loopback address."""
+        import ipaddress
+        try:
+            addr = ipaddress.ip_address(hostname)
+            return addr.is_private or addr.is_loopback or addr.is_reserved
+        except ValueError:
+            return False
+
+    def _validate_url(self, url: str) -> str:
+        """Validates URL against SSRF: blocks loopback, private, and reserved IPs."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower().strip(".")
+        if not hostname:
+            raise ValueError(f"Invalid URL (no host): {url}")
+        if hostname in self._BLOCKED_HOSTS or self._is_private_ip(hostname):
+            raise ValueError(f"Blocked URL: navigation to private/loopback addresses is forbidden ({hostname})")
+        return url
 
     async def fetch_page_content(self, url: str) -> str:
         """Navigates to URL headlessly and returns cleaned readable text."""
         try:
+            url = self._validate_url(url)
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
@@ -104,6 +129,9 @@ class PlaywrightBrowserAgent:
                 content = await page.inner_text("body")
                 await browser.close()
                 return content[:3000]  # Return first 3000 chars for LLM context
+        except ValueError as ve:
+            logger.error(f"URL validation failed: {ve}")
+            return f"Security Error: {ve}"
         except Exception as e:
             logger.error(f"Playwright navigation failed: {e}")
             return f"Error retrieving page: {e}"

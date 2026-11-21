@@ -55,8 +55,20 @@ def permission_engine():
     return PermissionEngine()
 
 
-@pytest.fixture
-def task_db_path(tmp_path):
-    """Returns a path for a temporary task SQLite database."""
-    return tmp_path / "test_tasks.db"
+@pytest.fixture(autouse=True)
+def mock_network_calls(monkeypatch):
+    """
+    Globally mocks external HTTP / socket calls so unit tests run in offline/isolated environments
+    without hanging or hitting WinError 10013.
+    """
+    from unittest.mock import MagicMock
+    import requests
+    
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"status": "ok", "models": []}
+    mock_resp.text = '{"status": "ok"}'
+    
+    monkeypatch.setattr(requests, "get", lambda *a, **kw: mock_resp)
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: mock_resp)
 

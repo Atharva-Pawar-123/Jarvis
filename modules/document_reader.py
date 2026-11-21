@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 import io
 
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF (modern API; replaces deprecated 'import fitz')
 from docx import Document
 
 try:
@@ -20,23 +20,54 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Allowed base directories for document reads (path traversal prevention)
+_SAFE_ROOTS: list[Path] = []
+
+def _init_safe_roots() -> list[Path]:
+    """Lazily compute allowed roots from config (import may happen before config is ready)."""
+    global _SAFE_ROOTS
+    if _SAFE_ROOTS:
+        return _SAFE_ROOTS
+    try:
+        import config
+        base = Path(config.BASE_DIR).resolve()
+        home = Path.home().resolve()
+        _SAFE_ROOTS = [base, home]
+    except Exception:
+        _SAFE_ROOTS = [Path.home().resolve()]
+    return _SAFE_ROOTS
+
 
 class DocumentReader:
     """
     Handles reading and text extraction from various document formats.
     """
 
+    @staticmethod
+    def _resolve_safe_path(file_path: str) -> Path:
+        """Resolves file_path and ensures it falls within allowed base directories."""
+        path = Path(file_path).resolve()
+        for root in _init_safe_roots():
+            try:
+                path.relative_to(root)
+                return path
+            except ValueError:
+                continue
+        raise PermissionError(
+            f"Access denied: '{file_path}' is outside allowed directories."
+        )
+
     def read_pdf(self, file_path: str) -> str:
         """
         Extract text from a PDF file with optional OCR fallback for scanned pages.
         """
         try:
-            path = Path(file_path)
+            path = self._resolve_safe_path(file_path)
             if not path.exists():
                 return f"I cannot find the file at {file_path}, sir."
 
             text_blocks = []
-            with fitz.open(str(path)) as doc:
+            with pymupdf.open(str(path)) as doc:
                 for page_num in range(len(doc)):
                     page = doc.load_page(page_num)
                     page_text = page.get_text().strip()
@@ -69,7 +100,7 @@ class DocumentReader:
         Extract text from a Word (.docx) file.
         """
         try:
-            path = Path(file_path)
+            path = self._resolve_safe_path(file_path)
             if not path.exists():
                 return f"I cannot find the file at {file_path}, sir."
 
@@ -88,7 +119,7 @@ class DocumentReader:
         """
         Generic read method that dispatches based on file extension.
         """
-        path = Path(file_path)
+        path = self._resolve_safe_path(file_path)
         ext = path.suffix.lower()
 
         if ext == ".pdf":

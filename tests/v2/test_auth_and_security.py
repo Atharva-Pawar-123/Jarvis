@@ -93,10 +93,13 @@ class TestApprovalCacheCollision:
 
         pe = PermissionEngine(approval_callback=mock_callback)
 
-        code = "print('Identical')"
-        await pe.verify_and_authorize("execute_code", {"code": code})
+        # Use an action category that permits caching (not in ALWAYS_REQUIRE_FRESH_APPROVAL)
+        auth1, _ = await pe.verify_and_authorize("send_email", {"to": "test@example.com"})
+        assert auth1 is True
         assert call_count[0] == 1
 
-        # Re-running exact same code should hit session cache
-        await pe.verify_and_authorize("execute_code", {"code": code})
-        assert call_count[0] == 1
+        # Re-running exact same payload should hit session cache
+        auth2, reason = await pe.verify_and_authorize("send_email", {"to": "test@example.com"})
+        assert auth2 is True
+        assert call_count[0] == 1, "Identical non-sensitive payload should reuse session cache"
+        assert "active session permission" in reason

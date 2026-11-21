@@ -4,9 +4,14 @@ from unittest.mock import MagicMock
 from modules.ultraplan import UltraPlanCoordinator, WorkerAgent
 
 class DummyLLM:
+    PRIMARY_MODEL = "test-model"
+
     def generate(self, messages, stream=False):
         # Always return a dummy response
         return "Dummy task completed."
+
+    def _generate_blocking(self, messages, model=None):
+        return self.generate(messages, stream=False)
 
 class TestOrchestrator(unittest.TestCase):
     def test_worker_agent(self):
