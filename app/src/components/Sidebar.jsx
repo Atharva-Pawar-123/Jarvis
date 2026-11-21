@@ -96,11 +96,10 @@ export default function Sidebar() {
                   setActiveTab(item.id)
                 }
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-mono transition-all ${
-                isActive
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-mono transition-all ${isActive
                   ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-[0_0_12px_rgba(0,200,255,0.15)]'
                   : 'text-slate-400 hover:text-cyan-200 hover:bg-[#07172b]'
-              }`}
+                }`}
               title={sidebarCollapsed ? item.label : undefined}
             >
               <div className="flex items-center gap-2.5">
@@ -138,11 +137,10 @@ export default function Sidebar() {
                 <div
                   key={sess.session_id}
                   onClick={() => !isEditing && loadSession(sess.session_id)}
-                  className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-sans cursor-pointer transition-colors ${
-                    isSelected
+                  className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-sans cursor-pointer transition-colors ${isSelected
                       ? 'bg-cyan-950/70 text-cyan-200 border border-cyan-500/40 shadow-[0_0_8px_rgba(0,200,255,0.15)]'
                       : 'text-slate-300 hover:text-cyan-200 hover:bg-[#07172b]'
-                  }`}
+                    }`}
                 >
                   {isEditing ? (
                     <div className="flex items-center gap-1 flex-1 pr-1" onClick={(e) => e.stopPropagation()}>
@@ -271,7 +269,7 @@ export default function Sidebar() {
       )}
 
       {/* Collapse / Expand Toggle Button */}
-      <button 
+      <button
         onClick={toggleSidebar}
         className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-10 rounded-full flex items-center justify-center z-20 bg-[#07172b] border border-cyan-500/30 text-cyan-400 hover:text-cyan-200 transition-colors shadow-lg"
       >

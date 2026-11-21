@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 ALWAYS_REQUIRE_FRESH_APPROVAL = {
     "execute_code",
     "delete_file",
+    "send_email",
+    "send_whatsapp",
     "system_shutdown",
     "system_restart",
     "modify_system_settings"

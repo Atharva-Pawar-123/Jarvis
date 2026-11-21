@@ -267,15 +267,22 @@ class StructuredToolRegistry:
 
             elapsed = int((time.time() - start_t) * 1000)
 
-            # Contract verification: False, None, or dict with explicit error key indicates failure
+            # Contract verification: False, None, or dict with explicit truthy error indicates failure.
+            # Notice: If res is a dict, an empty or None 'error' (e.g. {"error": ""}) is NOT a failure.
             is_failure = False
             err_msg = None
             if res is False:
                 is_failure = True
                 err_msg = "Tool returned False."
-            elif isinstance(res, dict) and "error" in res:
-                is_failure = True
-                err_msg = res.get("error")
+            elif isinstance(res, dict):
+                # If explicit 'success' field is present, it is authoritative
+                if "success" in res and res["success"] is False:
+                    is_failure = True
+                    err_msg = res.get("error") or "Tool reported success=False"
+                elif res.get("error"):
+                    # Only treat as failure if error is truthy (non-empty string or error object)
+                    is_failure = True
+                    err_msg = res.get("error")
 
             if is_failure:
                 return ToolExecutionResult(

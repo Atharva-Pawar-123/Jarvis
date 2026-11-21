@@ -176,6 +176,7 @@ class JarvisRuntime:
                     f"Approval request {request_id} for '{action}' rejected: "
                     f"originating session '{session_id}' is unavailable or inactive (fail-closed)."
                 )
+                self.permission_engine.resolve_approval_request(request_id, False)
                 return False
 
             target_sessions = [session_id]
@@ -196,6 +197,9 @@ class JarvisRuntime:
             except asyncio.TimeoutError:
                 logger.warning(f"Approval request {request_id} timed out.")
                 return False
+            finally:
+                # Always clean up the pending request to avoid leaking Futures
+                self.permission_engine.resolve_approval_request(request_id, False)
 
         self.permission_engine.set_approval_callback(ui_approval_callback)
 

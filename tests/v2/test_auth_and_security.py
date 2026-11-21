@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from server.api_server import app, LOCAL_AUTH_TOKEN
-from modules.security.permission_engine import PermissionEngine, ActionCategory
+from modules.security.permission_engine import PermissionEngine, ActionCategory, RiskLevel
 
 
 @pytest.fixture
@@ -92,14 +92,15 @@ class TestApprovalCacheCollision:
             return True
 
         pe = PermissionEngine(approval_callback=mock_callback)
+        pe.policies["custom_sensitive_action"] = (RiskLevel.HIGH, True)
 
-        # Use an action category that permits caching (not in ALWAYS_REQUIRE_FRESH_APPROVAL)
-        auth1, _ = await pe.verify_and_authorize("send_email", {"to": "test@example.com"})
+        # Use an action category that requires approval but permits caching (not in ALWAYS_REQUIRE_FRESH_APPROVAL)
+        auth1, _ = await pe.verify_and_authorize("custom_sensitive_action", {"key": "val1"})
         assert auth1 is True
         assert call_count[0] == 1
 
         # Re-running exact same payload should hit session cache
-        auth2, reason = await pe.verify_and_authorize("send_email", {"to": "test@example.com"})
+        auth2, reason = await pe.verify_and_authorize("custom_sensitive_action", {"key": "val1"})
         assert auth2 is True
         assert call_count[0] == 1, "Identical non-sensitive payload should reuse session cache"
         assert "active session permission" in reason

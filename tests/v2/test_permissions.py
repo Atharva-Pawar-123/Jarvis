@@ -150,14 +150,15 @@ class TestVerifyAndAuthorize:
             return True
 
         pe = PermissionEngine(approval_callback=counting_approve)
+        pe.policies["custom_medium_action"] = (RiskLevel.HIGH, True)
 
         # First call: callback fires
-        auth1, _ = await pe.verify_and_authorize("send_email", {"target": "test@test.com"})
+        auth1, _ = await pe.verify_and_authorize("custom_medium_action", {"target": "custom_target"})
         assert auth1
         assert call_count[0] == 1
 
         # Second call with same target: should use session cache
-        auth2, reason2 = await pe.verify_and_authorize("send_email", {"target": "test@test.com"})
+        auth2, reason2 = await pe.verify_and_authorize("custom_medium_action", {"target": "custom_target"})
         assert auth2
         assert "session" in reason2.lower()
         assert call_count[0] == 1  # Callback NOT called again

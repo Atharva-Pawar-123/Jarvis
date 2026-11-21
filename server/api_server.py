@@ -96,7 +96,9 @@ def get_runtime(request: Request) -> JarvisRuntime:
 # ── Authentication Middleware ─────────────────────────────────────────
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """Enforces mandatory authentication on all /api/ endpoints except health."""
+    """Enforces mandatory authentication on all /api/ endpoints except health.
+    Supports either LOCAL_AUTH_TOKEN or managed API keys validated by APIKeyManager.
+    """
     path = request.url.path
     if request.method == "OPTIONS" or path in ("/health", "/api/health", "/"):
         return await call_next(request)
@@ -109,11 +111,25 @@ async def auth_middleware(request: Request, call_next):
         elif "x-api-key" in request.headers:
             token = request.headers["x-api-key"].strip()
 
-        if not token or token != LOCAL_AUTH_TOKEN:
+        is_authenticated = False
+        if token:
+            # 1. Check local session token
+            if token == LOCAL_AUTH_TOKEN:
+                is_authenticated = True
+            else:
+                # 2. Check managed API keys in runtime APIKeyManager
+                rt: JarvisRuntime = getattr(request.app.state, "jarvis", None)
+                if rt and hasattr(rt, "key_mgr"):
+                    key_data = rt.key_mgr.validate_key(token)
+                    if key_data:
+                        is_authenticated = True
+                        request.state.api_key = key_data
+
+        if not is_authenticated:
             from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Unauthorized: Valid local authentication token required."},
+                content={"detail": "Unauthorized: Valid local authentication token or API key required."},
                 headers={"WWW-Authenticate": "Bearer"}
             )
 
