@@ -112,6 +112,7 @@ export default function ImageGenView() {
   // ── Refs ──────────────────────────────────────────────────────────────
   const fileInputRef = useRef(null)
   const canvasRef = useRef(null)
+  const imageRef = useRef(null)
   const modelMenuRef = useRef(null)
   const editModelMenuRef = useRef(null)
   const aspectMenuRef = useRef(null)
@@ -664,14 +665,24 @@ export default function ImageGenView() {
     setIsSynthesizingVideo(false)
   }
 
-  // ── Inpaint Mask Drawing Logic with Undo/Redo & Eraser ──────────────
+  // ── Inpaint Mask Drawing Logic with Coordinate Mapping & Undo/Redo ──
+  const getCanvasCoordinates = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 }
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    }
+  }
+
   const startDrawing = (e) => {
     if (!isMaskingMode || !canvasRef.current) return
-    // Save current canvas snapshot to undo stack before starting stroke
     const canvas = canvasRef.current
     const snapshot = canvas.toDataURL('image/png')
     setMaskHistory((prev) => [...prev.slice(-20), snapshot])
-    setMaskRedoStack([]) // clear redo on new stroke
+    setMaskRedoStack([])
     isDrawingRef.current = true
     draw(e)
   }
@@ -686,9 +697,7 @@ export default function ImageGenView() {
     if (!isDrawingRef.current || !canvasRef.current) return
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const { x, y } = getCanvasCoordinates(e, canvas)
 
     if (brushTool === 'eraser') {
       ctx.globalCompositeOperation = 'destination-out'
@@ -1147,7 +1156,19 @@ export default function ImageGenView() {
 
               {initImage ? (
                 <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[65vh] group">
-                  <img src={initImage} alt="Base for edit" className="object-contain max-h-[65vh] rounded-2xl" />
+                  <img
+                    ref={imageRef}
+                    src={initImage}
+                    alt="Base for edit"
+                    className="block object-contain max-h-[65vh] rounded-2xl select-none pointer-events-none"
+                    onLoad={() => {
+                      if (imageRef.current && canvasRef.current) {
+                        const img = imageRef.current
+                        canvasRef.current.width = img.naturalWidth || 512
+                        canvasRef.current.height = img.naturalHeight || 512
+                      }
+                    }}
+                  />
                   
                   {/* Floating Action Menu Button (matching reference image) */}
                   <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-20">
@@ -1244,17 +1265,19 @@ export default function ImageGenView() {
                   </div>
 
                   {/* Overlay Canvas for Mask Inpainting */}
-                  {isMaskingMode && (
-                    <canvas
-                      ref={canvasRef}
-                      width={512}
-                      height={512}
-                      onMouseDown={startDrawing}
-                      onMouseUp={stopDrawing}
-                      onMouseMove={draw}
-                      className="absolute inset-0 w-full h-full cursor-crosshair opacity-60 bg-red-500/10"
-                    />
-                  )}
+                  <canvas
+                    ref={canvasRef}
+                    width={512}
+                    height={512}
+                    onMouseDown={startDrawing}
+                    onMouseUp={stopDrawing}
+                    onMouseMove={draw}
+                    className={`absolute inset-0 w-full h-full cursor-crosshair transition-opacity ${
+                      isMaskingMode
+                        ? 'opacity-60 bg-red-500/10 pointer-events-auto z-10'
+                        : 'opacity-0 pointer-events-none -z-10'
+                    }`}
+                  />
 
                   {/* Motion Video Preview Modal / Player */}
                   {generatedVideoUrl && (
