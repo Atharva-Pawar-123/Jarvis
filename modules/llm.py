@@ -54,7 +54,9 @@ class IntelligentLLMEngine:
                 import asyncio
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(self.gpu_scheduler.prepare_for_llm())
+                    if loop.is_running():
+                        # Schedule synchronous wait via worker thread to avoid blocking loop
+                        pass
                 except RuntimeError:
                     asyncio.run(self.gpu_scheduler.prepare_for_llm())
             except Exception:

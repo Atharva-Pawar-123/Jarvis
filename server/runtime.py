@@ -247,6 +247,9 @@ class JarvisRuntime:
             task_manager=self.task_manager,
         )
 
+        # Start GPU Scheduler background queue worker
+        self.gpu_scheduler.start_worker()
+
         # ── Startup Recovery: Clean up interrupted tasks from previous session ──
         recovered = self.task_manager.recover_interrupted_tasks()
         if recovered:

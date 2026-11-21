@@ -262,7 +262,7 @@ export default function ImageGenView() {
     }
   }
 
-  // Auto-sync active workspace state to backend with debounce
+  // Auto-sync active workspace state to backend with debounce (stores light metadata IDs, not full base64)
   useEffect(() => {
     if (!activeVisualSessionId) return
     const timer = setTimeout(() => {
@@ -274,14 +274,12 @@ export default function ImageGenView() {
         selectedGenerateModel,
         steps,
         brushSize,
-        referenceImages,
         activeSubTab,
-        activeAssetId,
-        initImage
+        activeAssetId
       }).catch(() => {})
     }, 1000)
     return () => clearTimeout(timer)
-  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize, referenceImages, activeSubTab, activeAssetId, initImage])
+  }, [activeVisualSessionId, editPrompt, generatePrompt, denoisingStrength, selectedEditModel, selectedGenerateModel, steps, brushSize, activeSubTab, activeAssetId])
 
   const handleCreateNewSession = async () => {
     try {

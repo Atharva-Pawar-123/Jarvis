@@ -46,6 +46,9 @@ class VideoStudioEngine:
         Uses OpenCV for sub-pixel frame generation and lossless video encoding.
         Returns tuple of (video_bytes, absolute_filepath_str).
         """
+        # Strict input bounds enforcement
+        duration_seconds = max(0.5, min(10.0, float(duration_seconds)))
+        fps = max(8, min(30, int(fps)))
         if "base64," in image_b64:
             image_b64 = image_b64.split("base64,")[1]
 

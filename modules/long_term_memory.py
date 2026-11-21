@@ -56,17 +56,21 @@ class HybridRAGMemory:
             """)
 
     def _recover_pending_tasks(self):
-        """Pushes any unfinished tasks from previous sessions back into the active worker queue."""
+        """Pushes any unfinished (pending or processing) tasks from previous sessions back into the active worker queue."""
         import sqlite3
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT id, user_text, assistant_response FROM memory_tasks WHERE status = 'pending'")
+                cursor.execute("""
+                    SELECT id, user_text, assistant_response 
+                    FROM memory_tasks 
+                    WHERE status IN ('pending', 'processing')
+                """)
                 rows = cursor.fetchall()
                 for task_id, u_text, a_text in rows:
                     self._task_queue.put((task_id, u_text, a_text))
                 if rows:
-                    logging.info(f"Recovered {len(rows)} pending durable memory extraction jobs.")
+                    logging.info(f"Recovered {len(rows)} unfinished durable memory extraction jobs.")
         except Exception as e:
             logging.error(f"Failed to recover pending memory tasks: {e}")
 
@@ -381,6 +385,22 @@ class HybridRAGMemory:
 
         self._task_queue.put((task_id, user_text, assistant_response))
 
+    def delete_fact(self, fact_id: str) -> bool:
+        """Deletes a fact atomically from ChromaDB and BM25 index."""
+        deleted = False
+        try:
+            self.facts_col.delete(ids=[fact_id])
+            deleted = True
+        except Exception as e:
+            logging.warning(f"Could not delete fact {fact_id} from Chroma: {e}")
+
+        # Synchronously remove from BM25 corpus & metadata
+        self.bm25_metadata = [item for item in self.bm25_metadata if item.get("id") != fact_id]
+        self.bm25_corpus = [item["text"] for item in self.bm25_metadata]
+        self._rebuild_bm25()
+        self._save_bm25()
+        return deleted
+
     def clear_all(self):
         # We delete by recreating the DB or wiping data
         try:
@@ -395,7 +415,15 @@ class HybridRAGMemory:
             self.bm25_metadata = []
             self.bm25_index = None
             self._save_bm25()
+
+            # Clear durable memory queue as well
+            import sqlite3
+            try:
+                with sqlite3.connect(str(self.db_path)) as conn:
+                    conn.execute("DELETE FROM memory_tasks")
+            except Exception:
+                pass
             
-            logging.info("Memory cleared completely, sir.")
+            logging.info("Memory cleared completely across ChromaDB, BM25, and tasks queue, sir.")
         except Exception as e:
             logging.error(f"Error clearing memory: {e}")

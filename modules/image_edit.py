@@ -208,12 +208,16 @@ class ImageEditEngine:
         if reference_images:
             for idx, ref_img in enumerate(reference_images[:5]):
                 clean_ref = ref_img.split("base64,")[1] if "base64," in ref_img else ref_img
-                ip2p_model = resolve_cn_model_name("control_v11e_sd15_ip2p_fp16") if "ip2p" in str(model_checkpoint) else "None"
+                # If explicit ip2p checkpoint is selected, use ip2p; otherwise use standard ControlNet inpainting/reference model
+                if "ip2p" in str(model_checkpoint):
+                    ref_model = resolve_cn_model_name("control_v11e_sd15_ip2p_fp16")
+                else:
+                    ref_model = resolve_cn_model_name("control_v11p_sd15_inpaint_fp16")
                 controlnet_units.append({
                     "enabled": True,
                     "input_image": clean_ref,
                     "module": "none",
-                    "model": ip2p_model,
+                    "model": ref_model,
                     "weight": 0.8,
                     "resize_mode": "Crop and Resize",
                     "control_mode": "Balanced",

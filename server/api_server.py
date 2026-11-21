@@ -247,7 +247,7 @@ async def health(request: Request):
         pass
     return {
         "status": "ok",
-        "version": "3.1",
+        "version": "3.0.6",
         "ollama": ollama_ok,
         "uptime_seconds": int(time.time() - START_TIME),
         "auth_required": True
@@ -551,8 +551,8 @@ async def add_memory(req: MemoryAddRequest, rt: JarvisRuntime = Depends(get_runt
 @app.delete("/api/memory/{fact_id}")
 async def delete_memory(fact_id: str, rt: JarvisRuntime = Depends(get_runtime)):
     try:
-        rt.memory.facts_col.delete(ids=[fact_id])
-        return {"deleted": fact_id}
+        deleted = rt.memory.delete_fact(fact_id)
+        return {"deleted": fact_id, "success": deleted}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -562,9 +562,7 @@ async def clear_memory(x_confirm: Optional[str] = Header(None), rt: JarvisRuntim
     if x_confirm != "CLEAR_ALL_MEMORY":
         raise HTTPException(403, "Missing confirmation header: X-Confirm: CLEAR_ALL_MEMORY")
     try:
-        rt.memory.facts_col.delete(where={})
-        rt.memory.convs_col.delete(where={})
-        rt.memory.docs_col.delete(where={})
+        rt.memory.clear_all()
         return {"cleared": True}
     except Exception as e:
         raise HTTPException(500, str(e))
