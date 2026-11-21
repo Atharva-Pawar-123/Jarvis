@@ -154,8 +154,8 @@ class HybridRAGMemory:
         
         try:
             if ext == '.pdf':
-                import fitz # PyMuPDF
-                with fitz.open(file_path) as doc:
+                import pymupdf  # PyMuPDF (replaces deprecated 'fitz' import)
+                with pymupdf.open(file_path) as doc:
                     for page in doc:
                         text += page.get_text() + "\n"
             elif ext == '.docx':

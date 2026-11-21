@@ -1494,25 +1494,7 @@ async def delete_library_asset(asset_id: int, rt: JarvisRuntime = Depends(get_ru
     return {"status": "deleted", "id": asset_id}
 
 
-def _generate_pollinations_direct(prompt: str, submodel: str = "turbo"):
-    import urllib.parse
-    import requests
-    encoded = urllib.parse.quote(prompt.strip())
-    url = f"https://image.pollinations.ai/prompt/{encoded}?nologo=true&model={submodel}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=headers, timeout=60)
-            if resp.status_code == 200 and resp.content:
-                return resp.content, f"Pollinations AI ({submodel})"
-            elif resp.status_code in (402, 429, 503):
-                time.sleep(4)
-        except Exception as e:
-            logger.warning(f"Pollinations attempt {attempt+1} failed: {e}")
-            time.sleep(2)
-    return None, f"Pollinations AI ({submodel}) (Failed)"
+    # _generate_pollinations_direct — REMOVED (cloud dependency; JARVIS is 100% local)
 
 
 # ── Vision Endpoints ─────────────────────────────────────────────────
@@ -1768,7 +1750,10 @@ async def lifespan(application: FastAPI):
     yield
     # Shutdown phase (currently nothing to clean up)
 
-app.router.lifespan_context = None
+# Use lifespan in production, but allow tests to override via dependency injection
+import os as _os
+if _os.environ.get("JARVIS_TESTING") != "1":
+    app.router.lifespan_context = lifespan
 
 
 # Mount HUD static files
