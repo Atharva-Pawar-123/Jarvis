@@ -1,6 +1,7 @@
 import logging
 import threading
 import queue
+import concurrent.futures
 from typing import Any, Callable, List
 from pydantic import BaseModel, Field
 
@@ -78,11 +79,13 @@ class UltraPlanCoordinator:
 
     def execute_plan_async(self, user_query: str):
         """Spawns a background thread so the main JARVIS loop isn't blocked."""
-        threading.Thread(
-            target=self._run_multi_agent_swarm, 
-            args=(user_query,),
-            daemon=True
-        ).start()
+        # Use a managed ThreadPoolExecutor so the worker can be properly tracked
+        # and forcibly cancelled if it exceeds the timeout.
+        if not hasattr(self, '_executor'):
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="ultraplan"
+            )
+        self._executor.submit(self._run_multi_agent_swarm, user_query)
 
     def _run_multi_agent_swarm(self, query: str):
         self._notify("Sir, I am spinning up the Multi-Agent Orchestrator. This may take a moment.")
@@ -126,18 +129,23 @@ class UltraPlanCoordinator:
                 
             logger.info(f"Orchestrator identified {len(tasks)} sub-tasks: {tasks}")
             
-            # Step 2: Spawn Workers
+            # Step 2: Spawn Workers via ThreadPoolExecutor for managed lifecycle
+            worker_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(len(tasks), 3), thread_name_prefix="ultraplan-worker"
+            )
             result_queue = queue.Queue()
-            workers = []
-            for i, task in enumerate(tasks):
-                worker = WorkerAgent(task_id=i+1, task_description=task, llm=self.llm, result_queue=result_queue)
-                workers.append(worker)
-                worker.start()
-                
-            # Step 3: Wait for results
-            for worker in workers:
-                worker.join(timeout=30.0) # 30s timeout per worker
-                
+            futures = []
+            for i, task_desc in enumerate(tasks):
+                worker = WorkerAgent(task_id=i+1, task_description=task_desc, llm=self.llm, result_queue=result_queue)
+                futures.append(worker_executor.submit(worker.run))
+
+            # Step 3: Wait for results with a hard per-task timeout
+            done, not_done = concurrent.futures.wait(futures, timeout=60.0)
+            for f in not_done:
+                f.cancel()
+                logger.warning(f"UltraPlan worker timed out after 60s and was cancelled.")
+            worker_executor.shutdown(wait=False)
+
             results = []
             while not result_queue.empty():
                 results.append(result_queue.get())

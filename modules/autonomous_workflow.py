@@ -126,15 +126,48 @@ class AutonomousWorkflowEngine:
             nodes: Dict[str, DAGNode] = {}
             for item in raw_nodes:
                 nid = item["id"]
+                # Sanitize dependencies: drop any dep ID not present in this DAG
+                valid_deps = [d for d in item.get("deps", []) if any(r["id"] == d for r in raw_nodes)]
                 node = DAGNode(
                     id=nid,
                     description=item["desc"],
-                    dependencies=item.get("deps", [])
+                    dependencies=valid_deps
                 )
                 if nid in step_outputs:
                     node.status = "completed"
                     node.output = step_outputs[nid]
                 nodes[nid] = node
+
+            # Validate DAG: detect cycles via topological sort (Kahn's algorithm)
+            in_degree = {nid: 0 for nid in nodes}
+            for n in nodes.values():
+                for dep in n.dependencies:
+                    if dep in in_degree:
+                        in_degree[n.id] += 1  # n depends on dep, so n has an incoming edge
+
+            topo_queue = [nid for nid, deg in in_degree.items() if deg == 0]
+            visited_count = 0
+            temp_queue = list(topo_queue)
+            while temp_queue:
+                current = temp_queue.pop(0)
+                visited_count += 1
+                for n in nodes.values():
+                    if current in n.dependencies:
+                        in_degree[n.id] -= 1
+                        if in_degree[n.id] == 0:
+                            temp_queue.append(n.id)
+
+            if visited_count != len(nodes):
+                cycle_nodes = [nid for nid, deg in in_degree.items() if deg > 0]
+                error_msg = f"DAG cycle detected among nodes: {cycle_nodes}. Cannot execute."
+                logger.error(error_msg)
+                self.task_manager.update_progress(
+                    task_id=task_id,
+                    step_desc=error_msg,
+                    steps_completed=0,
+                    total_steps=1
+                )
+                raise RuntimeError(error_msg)
 
             total_steps = len(nodes) + 2
             completed_count = sum(1 for n in nodes.values() if n.status == "completed")
@@ -144,16 +177,31 @@ class AutonomousWorkflowEngine:
                 if self.task_manager.is_cancelled(task_id):
                     return
 
-                # Find all ready nodes
+                # Find all ready nodes (all deps completed)
                 ready_nodes = [
                     n for n in nodes.values()
                     if n.status == "pending" and all(nodes[dep].status == "completed" for dep in n.dependencies if dep in nodes)
                 ]
 
                 if not ready_nodes and any(n.status == "pending" for n in nodes.values()):
-                    # Deadlock prevention: unlock first pending node
-                    first_pending = next(n for n in nodes.values() if n.status == "pending")
-                    ready_nodes = [first_pending]
+                    # True deadlock: pending nodes have failed or stuck dependencies
+                    stuck_nodes = [n.id for n in nodes.values() if n.status == "pending"]
+                    failed_deps = set()
+                    for n in nodes.values():
+                        if n.status == "pending":
+                            for dep in n.dependencies:
+                                if dep in nodes and nodes[dep].status == "failed":
+                                    failed_deps.add(dep)
+                    error_msg = (
+                        f"DAG deadlock: nodes {stuck_nodes} are blocked. "
+                        f"Failed dependencies: {list(failed_deps) if failed_deps else 'none (possible cycle or missing dep)'}."
+                    )
+                    logger.error(error_msg)
+                    # Mark all stuck nodes as failed instead of silently unlocking
+                    for nid in stuck_nodes:
+                        nodes[nid].status = "failed"
+                        nodes[nid].output = error_msg
+                    break
 
                 for n in ready_nodes:
                     n.status = "running"

@@ -888,12 +888,6 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
 
     model_choice = req.model or "local"
 
-    # GPU VRAM Coordination: park Ollama models before local SD Forge generation
-    try:
-        await rt.gpu_scheduler.prepare_for_image_gen()
-    except Exception as e:
-        logger.warning(f"GPU scheduler park failed: {e}")
-
     # Extract specific checkpoint title if present
     checkpoint_title = None
     if model_choice.startswith("local:"):
@@ -905,17 +899,19 @@ async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(g
     width = req.width or (1024 if is_flux else 512)
     height = req.height or (1024 if is_flux else 512)
 
-    img_bytes = await asyncio.to_thread(
-        rt.image_gen._generate_local,
-        working_prompt,
-        req.negative_prompt or "",
-        steps,
-        width,
-        height,
-        cfg,
-        "Euler" if is_flux else "Euler a",
-        checkpoint_title
-    )
+    # GPU VRAM Coordination: hold exclusive lease for entire inference duration
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        img_bytes = await asyncio.to_thread(
+            rt.image_gen._generate_local,
+            working_prompt,
+            req.negative_prompt or "",
+            steps,
+            width,
+            height,
+            cfg,
+            "Euler" if is_flux else "Euler a",
+            checkpoint_title
+        )
 
     if not img_bytes:
         raise HTTPException(
@@ -1015,28 +1011,24 @@ async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_
     if not req.init_image or not req.prompt:
         raise HTTPException(400, "Both init_image and edit prompt are required.")
 
-    # GPU VRAM Coordination: park Ollama before local SD Forge img2img
-    try:
-        await rt.gpu_scheduler.prepare_for_image_gen()
-    except Exception as e:
-        logger.warning(f"GPU scheduler park failed: {e}")
-
     # Forward model spec (whether local: or controlnet:) directly to edit engine
     model_choice = req.model or "local"
 
-    edited_bytes = await asyncio.to_thread(
-        rt.image_edit.edit_image,
-        req.init_image,
-        req.prompt,
-        req.mask_image,
-        req.negative_prompt or "",
-        req.denoising_strength or 0.65,
-        req.steps or 20,
-        req.cfg_scale or 7.0,
-        "Euler a",
-        model_choice,
-        req.reference_images
-    )
+    # GPU VRAM Coordination: hold exclusive lease for entire img2img inference
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        edited_bytes = await asyncio.to_thread(
+            rt.image_edit.edit_image,
+            req.init_image,
+            req.prompt,
+            req.mask_image,
+            req.negative_prompt or "",
+            req.denoising_strength or 0.65,
+            req.steps or 20,
+            req.cfg_scale or 7.0,
+            "Euler a",
+            model_choice,
+            req.reference_images
+        )
 
     if not edited_bytes:
         raise HTTPException(
@@ -1153,18 +1145,14 @@ async def upscale_image_api(
     session_id = payload.get("session_id")
     parent_asset_id = payload.get("parent_asset_id")
 
-    # Park Ollama to free VRAM for hardware upscaler
-    try:
-        await rt.gpu_scheduler.prepare_for_image_gen()
-    except Exception as e:
-        logger.warning(f"GPU scheduler park failed: {e}")
-
-    upscaled_bytes = await asyncio.to_thread(
-        rt.image_edit.upscale_image,
-        image_b64,
-        upscaler_name,
-        scale
-    )
+    # GPU VRAM Coordination: hold exclusive lease for entire upscale inference
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        upscaled_bytes = await asyncio.to_thread(
+            rt.image_edit.upscale_image,
+            image_b64,
+            upscaler_name,
+            scale
+        )
 
     if not upscaled_bytes:
         raise HTTPException(503, "Local hardware upscaling failed or SD Forge is offline.")
@@ -1213,18 +1201,14 @@ async def segment_image_api(
     module = payload.get("module", "seg_ofade20k")
     resolution = int(payload.get("resolution", 512))
 
-    # Park Ollama to free VRAM for segmentation preprocessor
-    try:
-        await rt.gpu_scheduler.prepare_for_image_gen()
-    except Exception as e:
-        logger.warning(f"GPU scheduler park failed: {e}")
-
-    mask_bytes = await asyncio.to_thread(
-        rt.image_edit.segment_image,
-        image_b64,
-        module,
-        resolution
-    )
+    # GPU VRAM Coordination: hold exclusive lease for entire segmentation inference
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        mask_bytes = await asyncio.to_thread(
+            rt.image_edit.segment_image,
+            image_b64,
+            module,
+            resolution
+        )
 
     if not mask_bytes:
         raise HTTPException(503, "Neural segmentation failed or SD Forge is offline.")

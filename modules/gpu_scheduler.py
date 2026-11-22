@@ -148,6 +148,17 @@ class GPUScheduler:
         }
         return job_id
 
+    async def submit_media_job(self, job_type: str, metadata: dict, fn: Callable, *args, **kwargs) -> Any:
+        """
+        Submits a GPU task to the sequential media queue and returns the computed result.
+        Guarantees that inference runs strictly sequentially under the GPU lease.
+        """
+        job_id = self.register_media_job(job_type, metadata)
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        await self.media_queue.put((job_id, fn, args, kwargs, fut))
+        return await fut
+
     def update_job_status(self, job_id: str, status: str, progress: float = 0.0, error: Optional[str] = None):
         """Updates status and progress of a tracked media job."""
         if job_id in self.jobs:

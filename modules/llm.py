@@ -55,12 +55,18 @@ class IntelligentLLMEngine:
                 try:
                     loop = asyncio.get_running_loop()
                     if loop.is_running():
-                        # Schedule synchronous wait via worker thread to avoid blocking loop
-                        pass
+                        # We're in a sync method called from an async context.
+                        # Schedule the coroutine on the running loop and block
+                        # this worker thread until it completes.
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.gpu_scheduler.prepare_for_llm(), loop
+                        )
+                        future.result(timeout=10)
                 except RuntimeError:
+                    # No running loop — safe to use asyncio.run()
                     asyncio.run(self.gpu_scheduler.prepare_for_llm())
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"GPU scheduler prepare_for_llm failed: {e}")
 
         retries = 3
         for attempt in range(retries):
