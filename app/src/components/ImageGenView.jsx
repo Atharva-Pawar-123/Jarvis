@@ -514,9 +514,17 @@ export default function ImageGenView() {
       setIsMaskingMode(true)
       const canvas = canvasRef.current
       if (canvas) {
+        if (imageRef.current) {
+          const imgEl = imageRef.current
+          if (imgEl.naturalWidth && canvas.width !== imgEl.naturalWidth) {
+            canvas.width = imgEl.naturalWidth
+            canvas.height = imgEl.naturalHeight
+          }
+        }
         const ctx = canvas.getContext('2d')
         const img = new Image()
         img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height)
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
           setMaskImage(canvas.toDataURL('image/png'))
         }
@@ -668,18 +676,26 @@ export default function ImageGenView() {
   // ── Inpaint Mask Drawing Logic with Coordinate Mapping & Undo/Redo ──
   const getCanvasCoordinates = (e, canvas) => {
     const rect = canvas.getBoundingClientRect()
-    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 }
+    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0, scale: 1 }
     const scaleX = canvas.width / rect.width
     const scaleY = canvas.height / rect.height
     return {
       x: (e.clientX - rect.left) * scaleX,
       y: (e.clientY - rect.top) * scaleY,
+      scale: (scaleX + scaleY) / 2
     }
   }
 
   const startDrawing = (e) => {
     if (!isMaskingMode || !canvasRef.current) return
     const canvas = canvasRef.current
+    if (imageRef.current) {
+      const img = imageRef.current
+      if (img.naturalWidth && canvas.width !== img.naturalWidth) {
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+      }
+    }
     const snapshot = canvas.toDataURL('image/png')
     setMaskHistory((prev) => [...prev.slice(-20), snapshot])
     setMaskRedoStack([])
@@ -697,18 +713,19 @@ export default function ImageGenView() {
     if (!isDrawingRef.current || !canvasRef.current) return
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
-    const { x, y } = getCanvasCoordinates(e, canvas)
+    const { x, y, scale } = getCanvasCoordinates(e, canvas)
+    const effectiveRadius = Math.max(2, brushSize * (scale || 1))
 
     if (brushTool === 'eraser') {
       ctx.globalCompositeOperation = 'destination-out'
       ctx.beginPath()
-      ctx.arc(x, y, brushSize, 0, Math.PI * 2)
+      ctx.arc(x, y, effectiveRadius, 0, Math.PI * 2)
       ctx.fill()
     } else {
       ctx.globalCompositeOperation = 'source-over'
       ctx.fillStyle = 'white'
       ctx.beginPath()
-      ctx.arc(x, y, brushSize, 0, Math.PI * 2)
+      ctx.arc(x, y, effectiveRadius, 0, Math.PI * 2)
       ctx.fill()
     }
   }
