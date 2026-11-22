@@ -31,6 +31,7 @@ class HybridRAGMemory:
         self._load_bm25()
 
         # Durable SQLite-backed Background Memory Task Queue
+        self.memory_generation_id = 0
         self.db_path = config.DATA_DIR / "memory_queue.sqlite"
         self._init_memory_db()
         self._task_queue = queue.Queue()
@@ -68,7 +69,7 @@ class HybridRAGMemory:
                 """)
                 rows = cursor.fetchall()
                 for task_id, u_text, a_text in rows:
-                    self._task_queue.put((task_id, u_text, a_text))
+                    self._task_queue.put((task_id, u_text, a_text, self.memory_generation_id))
                 if rows:
                     logging.info(f"Recovered {len(rows)} unfinished durable memory extraction jobs.")
         except Exception as e:
@@ -297,8 +298,18 @@ class HybridRAGMemory:
                 task = self._task_queue.get()
                 if task is None:
                     break
-                task_id, user_text, assistant_response = task
+                if len(task) == 4:
+                    task_id, user_text, assistant_response, gen_id = task
+                else:
+                    task_id, user_text, assistant_response = task
+                    gen_id = self.memory_generation_id
                 
+                # Generation ID check: discard tasks queued prior to clear_all()
+                if gen_id != self.memory_generation_id:
+                    logging.info(f"Discarding memory task {task_id} due to generation mismatch ({gen_id} vs {self.memory_generation_id}).")
+                    self._task_queue.task_done()
+                    continue
+
                 # Mark as processing in DB
                 if task_id > 0:
                     try:
@@ -312,6 +323,12 @@ class HybridRAGMemory:
 
                 success, extracted_count, err_msg = self._run_extraction(user_text, assistant_response)
                 
+                # Check generation ID again after LLM inference before committing
+                if gen_id != self.memory_generation_id:
+                    logging.info(f"Memory cleared during extraction of task {task_id}; skipping commit.")
+                    self._task_queue.task_done()
+                    continue
+
                 # Mark completed or failed in DB based on actual extraction outcome
                 if task_id > 0:
                     try:
@@ -383,7 +400,7 @@ class HybridRAGMemory:
         except Exception as e:
             logging.error(f"Failed to persist memory task: {e}")
 
-        self._task_queue.put((task_id, user_text, assistant_response))
+        self._task_queue.put((task_id, user_text, assistant_response, self.memory_generation_id))
 
     def delete_fact(self, fact_id: str) -> bool:
         """Deletes a fact atomically from ChromaDB and BM25 index."""
@@ -402,6 +419,19 @@ class HybridRAGMemory:
         return deleted
 
     def clear_all(self):
+        # Invalidate existing tasks by incrementing memory_generation_id
+        self.memory_generation_id += 1
+        # Drain in-memory task queue immediately
+        try:
+            while not self._task_queue.empty():
+                try:
+                    self._task_queue.get_nowait()
+                    self._task_queue.task_done()
+                except Exception:
+                    break
+        except Exception:
+            pass
+
         # We delete by recreating the DB or wiping data
         try:
             self.chroma_client.delete_collection("jarvis_facts")
@@ -424,6 +454,6 @@ class HybridRAGMemory:
             except Exception:
                 pass
             
-            logging.info("Memory cleared completely across ChromaDB, BM25, and tasks queue, sir.")
+            logging.info(f"Memory cleared completely across ChromaDB, BM25, and tasks queue (generation: {self.memory_generation_id}), sir.")
         except Exception as e:
             logging.error(f"Error clearing memory: {e}")

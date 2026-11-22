@@ -177,6 +177,14 @@ class StructuredToolRegistry:
             for k, v in self._tools.items()
         ]
 
+    def get_registered_capabilities(self) -> List[str]:
+        """Returns high-level user-facing capabilities based strictly on registered online tools."""
+        caps = []
+        for name, data in self._tools.items():
+            desc = data["description"].split(".")[0]
+            caps.append(f"- {name}: {desc}")
+        return caps
+
     def get_system_prompt_prompt(self) -> str:
         """Generates a strict JSON schema prompt for local models."""
         tool_docs = []

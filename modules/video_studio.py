@@ -120,14 +120,25 @@ class VideoStudioEngine:
             # OpenCV VideoWriter for MP4
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
+            if not writer.isOpened():
+                logger.error(f"Failed to open VideoWriter for {out_path}")
+                return None, None
+
             for f in frames:
                 # RGB to BGR for OpenCV
                 bgr = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
                 writer.write(bgr)
             writer.release()
 
-            if out_path.exists():
-                return out_path.read_bytes(), str(out_path)
+            if out_path.exists() and out_path.stat().st_size > 0:
+                # Validate that generated MP4 is decodeable
+                cap = cv2.VideoCapture(str(out_path))
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    cap.release()
+                    if ret:
+                        return out_path.read_bytes(), str(out_path)
+                logger.warning(f"Generated video {out_path} failed decode validation.")
             return None, None
 
         except Exception as e:

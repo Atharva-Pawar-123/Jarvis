@@ -264,7 +264,7 @@ async def health(request: Request):
         pass
     return {
         "status": "ok",
-        "version": "3.0.6",
+        "version": "3.1.1",
         "ollama": ollama_ok,
         "uptime_seconds": int(time.time() - START_TIME),
         "auth_required": True
@@ -1065,6 +1065,27 @@ async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_
         "source": "Local SD Forge (img2img/inpaint)",
         "parent_asset_id": req.parent_asset_id
     }
+
+
+@app.get("/api/media/asset/{asset_id}")
+async def get_media_asset(asset_id: int, rt: JarvisRuntime = Depends(get_runtime)):
+    """Serves a persistent media asset from storage by its SQLite asset ID."""
+    if not rt.image_studio_db:
+        raise HTTPException(500, "Studio DB not active")
+    
+    with rt.image_studio_db._get_connection() as conn:
+        cursor = conn.execute("SELECT filepath, asset_type FROM visual_assets WHERE id = ?", (asset_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(404, "Asset not found")
+        
+        fp = Path(row["filepath"])
+        if not fp.exists():
+            raise HTTPException(404, "Physical asset file not found on disk")
+        
+        from fastapi.responses import FileResponse
+        media_type = "video/mp4" if row["asset_type"] == "video" or fp.suffix == ".mp4" else "image/png"
+        return FileResponse(path=str(fp), media_type=media_type)
 
 
 @app.get("/api/image/sessions")
