@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.1)
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.1.1 Stabilized)
 
 ---
 
@@ -7,35 +7,18 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the rollout of **V3.1 Architecture & Hardening Release**, JARVIS addresses critical implementation gaps and achieves full regression stability:
-- **Resilient ControlNet Integration**: Fuzzy model name matching and isolated unit execution guards in SD WebUI Forge prevent crashes from missing hash suffixes or unhandled preprocessor states.
-- **Strict Pydantic V2 Schema Validation**: Standardized model list responses across local diffusion APIs (`GET /sdapi/v1/sd-models`) with default fallbacks, preventing HTTP 500 response validation errors.
-- **Modernized Backend Lifespan**: Upgraded FastAPI server to use structured lifespan handlers with dynamic test-mode decoupling (`JARVIS_TESTING=1`).
-- **Modernized Document & Memory Pipelines**: Replaced legacy PyMuPDF imports (`fitz` -> `pymupdf`) and removed all dead cloud generation references (e.g., Pollinations AI).
-- **100% Passing Test Suite**: Comprehensive 95-test suite covering agent reasoning, tools, security gates, memory systems, and image workflows.
-- **Imagine Video Studio (V3.0 Motion Engine)**: Calibrated for 6GB consumer GPUs, synthesizing fluid cinematic camera motion clips (zoom in, zoom out, pan, drift) from keyframes into MP4/WEBM with exact filesystem path alignment and an interactive looping preview player.
-- **Dedicated Video Asset Library**: Full `<video>` element support in the Library gallery with live hover-to-play scrubbing, video type filtering (`video`), and one-click playback in the Imagine preview modal.
-- **True Foreground Segmentation**: Advanced OpenCV GrabCut foreground isolation with ControlNet ADE20K semantic fallback, replacing color-threshold heuristics for robust subject cutouts and background replacement.
-- **Durable SQLite Memory Queue (`memory_queue.sqlite`)**: True reboot-safe sequential task queue that recovers and resumes pending fact extraction jobs upon backend restart.
-- **Full Workspace State Reconstruction**: Multi-reference image deck, selected models, canvas settings, active tabs, and sliders are automatically persisted to SQLite per-session and restored cleanly.
-- **Standardized Absolute Database Paths**: Explicitly initializes all sqlite databases using `config.DATA_DIR`, guaranteeing database integrity regardless of execution directory.
-- **Image Studio Pro (Grok Imagine Architecture)**: Unified creative studio featuring text-to-image generation, a dedicated **Edit Canvas** for instruction-guided img2img & inpainting, and an asset **Library** gallery.
-- **Direct Computer Storage Upload**: Upload any `.png`, `.jpg`, or `.webp` file from local storage via drag-and-drop or file picker with 25MB payload guard, automatic EXIF orientation stripping, and sRGB sanitization.
-- **Dedicated Inpainting & ControlNet IP2P Pipelines**: True split model execution routing ControlNet models (`control_v11e_sd15_ip2p_fp16`, `control_v11p_sd15_inpaint_fp16`) through Forge `alwayson_scripts` and inpainting checkpoints through `/sdapi/v1/options`.
-- **Multi-Reference Editing Deck (Up to 5 Reference Images)**: Dynamic reference image dock supporting simultaneous multi-style and composition conditioning dispatched to local ControlNet units.
-- **Hardware-Aware GPU Scheduler & Media Task Queue**: Strict VRAM coordination preventing concurrent VRAM collisions between LLM reasoning and SD image synthesis on 6GB VRAM GPUs, backed by a FIFO media task queue (`/api/gpu/queue`).
-- **Inpainting Canvas Mask Eraser & Undo/Redo**: Full interactive masking toolbar supporting white drawing, `destination-out` erasing, and complete `Undo`/`Redo` history stacks.
-- **Magic Wand Semantic Segmentation**: One-click ADE20K semantic segmentation using ControlNet, converting scene objects into precision inpaint masks without manual drawing.
-- **Background Removal (Isolated Transparent PNG)**: One-click subject segmentation that removes background with clean alpha transparency saved directly to the session asset tree.
-- **Background Replacement**: Inverts subject masks, preserves the foreground object, and regenerates realistic new backgrounds from natural language prompts via localized inpainting.
-- **Generative Outpainting (Aspect Ratio Expansion)**: Auto-pads images into target widescreen aspect ratios (e.g., 16:9) and generates seamless extended scenes using edge-matched diffusion.
-- **Local Hardware-Accelerated Upscaler**: Integrated hardware super-resolution (`R-ESRGAN 4x+`, `SwinIR 4x`, `DAT x2`) with 2x one-click upscale directly on the canvas.
-- **Per-Session Workspace State Persistence**: Automatic debounced auto-sync storing prompt drafts, selected models, denoise strength, steps, and brush size in SQLite `visual_sessions` across application reboots.
-- **Grok-Style Visual Session Rail**: Independent visual sessions with 3-image miniature preview cards, allowing users to switch between editing canvases without losing work.
-- **Complete Zero-Trace Deletion System**: Full user control to delete any individual conversation, Imagine visual session, or image asset. Permanent file unlinking (`Path.unlink()`) ensures zero residue remains on disk.
-- **Durable Cognitive Memory Queue**: Sequential background worker queue with real-time status telemetry (`GET /api/memory/status`), preventing task interruption during shutdowns.
-- **Persistent Asset Database (`image_studio.db`)**: Full SQLite catalog with enforced foreign keys (`PRAGMA foreign_keys = ON`) maintaining version lineage (Upload &rarr; Edit 1 &rarr; Edit 2), favorite flags, prompt metadata, and dimensions.
-- **Next-Gen Command Center & Ambient HUD**: Hexagonal lattice ambient background and interactive Arc Reactor canvas responding to real-time CPU/GPU system load.
+With the rollout of **V3.1.1 Architectural Stabilization Release** (remediating all 77-page engineering audit findings):
+- **Central GPU Lease Coordination**: Full exclusive VRAM lock (`acquire_gpu_lease("forge")`) across local SD generation, inpainting/img2img, ESRGAN upscaling, and neural segmentation, eliminating CUDA OOM thrashing on 6GB VRAM GPUs.
+- **LLM Thread-Safe Coordination**: Safe bridge across sync/async event loops via `asyncio.run_coroutine_threadsafe` preventing Ollama model unparking deadlocks.
+- **Topological DAG Engine Hardening**: Autonomous workflow engine with cycle detection (Kahn's algorithm) and explicit deadlock failure handling instead of silent unlocking of unverified tasks.
+- **UltraPlan Thread Management**: Bounded worker execution via managed `ThreadPoolExecutor` with strict timeouts and cooperative cancellation.
+- **Durable Memory Generation ID**: In-memory task queue draining and `memory_generation_id` validation in `HybridRAGMemory` that completely prevents old pending tasks from resurrecting deleted memories after `clear_all()`.
+- **Canvas Resolution & Brush Alignment**: Inpaint mask canvas dynamically syncs to natural image resolution with 1:1 cursor coordinate scaling, restoring accurate brush strokes and ControlNet Magic Wand segmentation overlays.
+- **Lazy Media Asset Streaming**: Dedicated `GET /api/media/asset/{asset_id}` endpoint serving disk assets cleanly without large Base64 payload bloat.
+- **Product Truth & Verifiable Capabilities**: System prompt aligned with verified local tools, removing hallucinated claims (e.g. Pollinations AI, uninstalled camera hooks).
+- **Video Encoding Verification**: Added `cv2.VideoWriter.isOpened()` checking and decode validation via `cv2.VideoCapture` before returning synthesized motion clips.
+- **Full Security Gate & API Key Middleware**: Complete approval future cleanup on disconnect, strict confirmation for email/WhatsApp actions, and unified API key middleware.
+- **100% Passing Test Suite**: 95 passing tests with full regression coverage.
 
 ---
 
