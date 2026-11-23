@@ -97,13 +97,27 @@ class PlaywrightBrowserAgent:
 
     @staticmethod
     def _is_private_ip(hostname: str) -> bool:
-        """Returns True if hostname resolves to a private / loopback address."""
+        """Returns True if hostname or resolved DNS addresses are private / loopback / reserved."""
         import ipaddress
+        import socket
         try:
             addr = ipaddress.ip_address(hostname)
-            return addr.is_private or addr.is_loopback or addr.is_reserved
+            return addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local
         except ValueError:
-            return False
+            pass
+
+        # Resolve hostname via DNS to prevent DNS rebinding SSRF
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for item in addr_info:
+                ip_str = item[4][0]
+                addr = ipaddress.ip_address(ip_str)
+                if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local:
+                    return True
+        except Exception:
+            # If DNS resolution fails, block by default for safety
+            return True
+        return False
 
     def _validate_url(self, url: str) -> str:
         """Validates URL against SSRF: blocks loopback, private, and reserved IPs."""

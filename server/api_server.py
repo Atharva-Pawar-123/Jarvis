@@ -93,6 +93,32 @@ def get_runtime(request: Request) -> JarvisRuntime:
     return request.app.state.jarvis
 
 
+# ── Scope Verification Dependency ─────────────────────────────────────
+def require_scope(required_scope: str):
+    """Enforces specific capability scopes on managed API keys.
+    Local token (LOCAL_AUTH_TOKEN) and admin scope bypass all restrictions.
+    """
+    async def dependency(request: Request):
+        key_data = getattr(request.state, "api_key", None)
+        if key_data:
+            perms = key_data.get("permissions")
+            if isinstance(perms, str):
+                import json
+                try:
+                    perms = json.loads(perms)
+                except Exception:
+                    perms = []
+            elif not isinstance(perms, list):
+                perms = []
+            
+            if "admin" not in perms and required_scope not in perms:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Forbidden: API key lacks required scope '{required_scope}'. Granted: {perms}"
+                )
+    return dependency
+
+
 # ── Authentication Middleware ─────────────────────────────────────────
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
