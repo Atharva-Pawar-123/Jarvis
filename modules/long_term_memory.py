@@ -321,13 +321,19 @@ class HybridRAGMemory:
                     except Exception:
                         pass
 
-                success, extracted_count, err_msg = self._run_extraction(user_text, assistant_response)
+                success, extracted_facts, err_msg = self._run_extraction(user_text, assistant_response)
                 
                 # Check generation ID again after LLM inference before committing
                 if gen_id != self.memory_generation_id:
                     logging.info(f"Memory cleared during extraction of task {task_id}; skipping commit.")
                     self._task_queue.task_done()
                     continue
+
+                # Atomically commit extracted facts to ChromaDB & BM25 only if generation still matches
+                if success and extracted_facts:
+                    for fact in extracted_facts:
+                        if gen_id == self.memory_generation_id:
+                            self.add_fact(fact)
 
                 # Mark completed or failed in DB based on actual extraction outcome
                 if task_id > 0:
@@ -372,18 +378,17 @@ class HybridRAGMemory:
                 else:
                     facts = []
                     
-            count = 0
+            valid_facts = []
             if isinstance(facts, list):
                 for fact in facts:
                     if isinstance(fact, str) and len(fact) > 5:
-                        self.add_fact(fact)
-                        count += 1
-            self.last_extraction_status = {"status": "completed", "timestamp": datetime.datetime.now().isoformat(), "extracted_count": count}
-            return True, count, ""
+                        valid_facts.append(fact)
+            self.last_extraction_status = {"status": "completed", "timestamp": datetime.datetime.now().isoformat(), "extracted_count": len(valid_facts)}
+            return True, valid_facts, ""
         except Exception as e:
             self.last_extraction_status = {"status": "failed", "error": str(e), "timestamp": datetime.datetime.now().isoformat(), "extracted_count": 0}
             logging.warning(f"Fact extraction failed: {e}")
-            return False, 0, str(e)
+            return False, [], str(e)
 
     def extract_and_store_facts(self, user_text: str, assistant_response: str):
         """Persists memory task to SQLite and queues it for sequential worker extraction."""

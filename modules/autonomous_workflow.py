@@ -122,16 +122,30 @@ class AutonomousWorkflowEngine:
                 except Exception:
                     pass
 
-            # Construct nodes
+            # Construct nodes and strictly validate all dependencies
             nodes: Dict[str, DAGNode] = {}
+            all_node_ids = {item["id"] for item in raw_nodes}
+
             for item in raw_nodes:
                 nid = item["id"]
-                # Sanitize dependencies: drop any dep ID not present in this DAG
-                valid_deps = [d for d in item.get("deps", []) if any(r["id"] == d for r in raw_nodes)]
+                deps = item.get("deps", [])
+                # Strict validation: reject the entire plan if any dependency refers to an undefined node
+                for dep in deps:
+                    if dep not in all_node_ids:
+                        error_msg = f"DAG plan rejected: Node '{nid}' depends on unknown task ID '{dep}'."
+                        logger.error(error_msg)
+                        self.task_manager.update_progress(
+                            task_id=task_id,
+                            step_desc=error_msg,
+                            steps_completed=0,
+                            total_steps=1
+                        )
+                        raise ValueError(error_msg)
+
                 node = DAGNode(
                     id=nid,
                     description=item["desc"],
-                    dependencies=valid_deps
+                    dependencies=deps
                 )
                 if nid in step_outputs:
                     node.status = "completed"

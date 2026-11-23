@@ -1256,10 +1256,12 @@ async def remove_background_api(
     session_id = payload.get("session_id")
     parent_asset_id = payload.get("parent_asset_id")
 
-    rgba_bytes = await asyncio.to_thread(
-        rt.image_edit.remove_background,
-        image_b64
-    )
+    # GPU VRAM Coordination: hold exclusive lease for background removal
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        rgba_bytes = await asyncio.to_thread(
+            rt.image_edit.remove_background,
+            image_b64
+        )
 
     if not rgba_bytes:
         raise HTTPException(500, "Background removal processing failed.")
@@ -1319,15 +1321,17 @@ async def replace_background_api(
     except Exception as e:
         logger.warning(f"Failed to park system monitor/Ollama for replace-bg: {e}")
 
-    result_bytes = await asyncio.to_thread(
-        rt.image_edit.replace_background,
-        image_b64,
-        prompt,
-        negative_prompt,
-        denoising_strength,
-        steps,
-        cfg_scale
-    )
+    # GPU VRAM Coordination: hold exclusive lease for background replacement
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        result_bytes = await asyncio.to_thread(
+            rt.image_edit.replace_background,
+            image_b64,
+            prompt,
+            negative_prompt,
+            denoising_strength,
+            steps,
+            cfg_scale
+        )
 
     if not result_bytes:
         raise HTTPException(500, "Background replacement generation failed.")
@@ -1388,16 +1392,18 @@ async def outpaint_image_api(
     except Exception as e:
         logger.warning(f"Failed to park system monitor/Ollama for outpainting: {e}")
 
-    result_bytes = await asyncio.to_thread(
-        rt.image_edit.outpaint_image,
-        image_b64,
-        prompt,
-        target_ratio,
-        negative_prompt,
-        denoising_strength,
-        steps,
-        cfg_scale
-    )
+    # GPU VRAM Coordination: hold exclusive lease for outpainting
+    async with rt.gpu_scheduler.acquire_gpu_lease("forge"):
+        result_bytes = await asyncio.to_thread(
+            rt.image_edit.outpaint_image,
+            image_b64,
+            prompt,
+            target_ratio,
+            negative_prompt,
+            denoising_strength,
+            steps,
+            cfg_scale
+        )
 
     if not result_bytes:
         raise HTTPException(500, "Outpainting generation failed.")
@@ -1468,16 +1474,19 @@ async def generate_motion_video_api(
     session_id = payload.get("session_id")
     parent_asset_id = payload.get("parent_asset_id")
 
-    # Enroll in GPU Media Job Queue
-    job_id = rt.gpu_scheduler.register_media_job("video_synthesis", {
+    # Route video synthesis through GPU scheduler media queue
+    job_metadata = {
         "motion_type": motion_type,
         "duration": duration,
         "fps": fps
-    })
+    }
+    job_id = rt.gpu_scheduler.register_media_job("video_synthesis", job_metadata)
     rt.gpu_scheduler.update_job_status(job_id, "running", progress=0.2)
 
     try:
-        video_bytes, vid_filepath = await asyncio.to_thread(
+        video_bytes, vid_filepath = await rt.gpu_scheduler.submit_media_job(
+            "video_synthesis",
+            job_metadata,
             rt.video_studio.generate_motion_video,
             image_b64,
             motion_type,
