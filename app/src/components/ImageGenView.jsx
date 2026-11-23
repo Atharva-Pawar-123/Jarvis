@@ -1526,6 +1526,20 @@ export default function ImageGenView() {
                         >
                           Clear
                         </button>
+                        <div className="h-3 w-px bg-cyan-500/20 mx-0.5" />
+                        {/* Brush Size Controls */}
+                        <div className="flex items-center gap-1.5 px-1 font-mono text-[10px] text-cyan-300" title="Adjust Brush Size">
+                          <span>Size:</span>
+                          <input
+                            type="range"
+                            min="4"
+                            max="128"
+                            value={brushSize}
+                            onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
+                            className="w-16 h-1.5 accent-cyan-400 cursor-pointer"
+                          />
+                          <span className="w-5 text-right text-slate-300">{brushSize}px</span>
+                        </div>
                       </div>
                     )}
                     {/* Multi-Reference Add Pill */}
