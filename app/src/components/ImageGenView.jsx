@@ -97,6 +97,7 @@ export default function ImageGenView() {
   const [referenceImages, setReferenceImages] = useState([]) // array of base64 strings (up to 5)
   const [editError, setEditError] = useState('')
   const [brushSize, setBrushSize] = useState(24)
+  const [showBrushSizePopover, setShowBrushSizePopover] = useState(false)
   const [isMaskingMode, setIsMaskingMode] = useState(false)
   const [brushTool, setBrushTool] = useState('brush') // 'brush' | 'eraser'
   const [maskHistory, setMaskHistory] = useState([])
@@ -116,6 +117,7 @@ export default function ImageGenView() {
   const modelMenuRef = useRef(null)
   const editModelMenuRef = useRef(null)
   const aspectMenuRef = useRef(null)
+  const brushSizeMenuRef = useRef(null)
   const isDrawingRef = useRef(false)
 
   // ── Close popups when clicking outside ────────────────────────────────
@@ -129,6 +131,9 @@ export default function ImageGenView() {
       }
       if (aspectMenuRef.current && !aspectMenuRef.current.contains(e.target)) {
         setShowAspectMenu(false)
+      }
+      if (brushSizeMenuRef.current && !brushSizeMenuRef.current.contains(e.target)) {
+        setShowBrushSizePopover(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -1527,18 +1532,44 @@ export default function ImageGenView() {
                           Clear
                         </button>
                         <div className="h-3 w-px bg-cyan-500/20 mx-0.5" />
-                        {/* Brush Size Controls */}
-                        <div className="flex items-center gap-1.5 px-1 font-mono text-[10px] text-cyan-300" title="Adjust Brush Size">
-                          <span>Size:</span>
-                          <input
-                            type="range"
-                            min="4"
-                            max="128"
-                            value={brushSize}
-                            onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
-                            className="w-16 h-1.5 accent-cyan-400 cursor-pointer"
-                          />
-                          <span className="w-5 text-right text-slate-300">{brushSize}px</span>
+                        {/* Compact Brush Size Button & Popover */}
+                        <div className="relative" ref={brushSizeMenuRef}>
+                          <button
+                            type="button"
+                            onClick={() => setShowBrushSizePopover(!showBrushSizePopover)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 font-mono transition-all border ${
+                              showBrushSizePopover
+                                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 shadow-sm'
+                                : 'bg-slate-900 border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/10'
+                            }`}
+                            title="Adjust Brush Size"
+                          >
+                            <span>Size:</span>
+                            <span className="font-bold text-white">{brushSize}px</span>
+                          </button>
+
+                          {showBrushSizePopover && (
+                            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-[#0B1626]/95 border border-cyan-500/30 rounded-xl p-2.5 shadow-2xl backdrop-blur-md z-40 animate-fade-in font-mono text-[11px]">
+                              <div className="flex items-center justify-between mb-1.5 text-cyan-300">
+                                <span>Brush Radius</span>
+                                <span className="font-bold text-white">{brushSize}px</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="4"
+                                max="128"
+                                value={brushSize}
+                                onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
+                                className="w-full h-1.5 accent-cyan-400 cursor-pointer"
+                              />
+                              <div className="flex justify-between text-[9px] text-slate-400 mt-1">
+                                <span>4px</span>
+                                <span>32px</span>
+                                <span>64px</span>
+                                <span>128px</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
