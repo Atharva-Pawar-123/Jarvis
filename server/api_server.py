@@ -446,7 +446,7 @@ async def submit_approval_decision(req: ApprovalDecisionRequest, rt: JarvisRunti
 
 
 # ── Chat (Main Endpoint) ─────────────────────────────────────────────
-@app.post("/api/message")
+@app.post("/api/message", dependencies=[Depends(require_scope("chat"))])
 async def send_message(req: MessageRequest, rt: JarvisRuntime = Depends(get_runtime)):
     start_t = time.time()
     sid = req.session_id
@@ -596,7 +596,7 @@ async def send_message(req: MessageRequest, rt: JarvisRuntime = Depends(get_runt
 
 
 # ── Quick Command (no conversation storage) ──────────────────────────
-@app.post("/api/command")
+@app.post("/api/command", dependencies=[Depends(require_scope("chat"))])
 async def quick_command(req: CommandRequest, rt: JarvisRuntime = Depends(get_runtime)):
     classified = await asyncio.to_thread(rt.intent.classify, req.command)
     messages = _build_messages(rt.session_db, req.session_id, req.command)
@@ -898,7 +898,7 @@ async def list_image_models(mode: Optional[str] = None):
     return {"models": models}
 
 
-@app.post("/api/image/generate")
+@app.post("/api/image/generate", dependencies=[Depends(require_scope("media"))])
 async def generate_image_api(req: ImageGenRequest, rt: JarvisRuntime = Depends(get_runtime)):
     if not rt.image_gen:
         raise HTTPException(500, "Image generation engine not initialized.")
@@ -1029,7 +1029,7 @@ async def upload_image_api(
         raise HTTPException(500, f"Image upload failed: {str(e)}")
 
 
-@app.post("/api/image/edit")
+@app.post("/api/image/edit", dependencies=[Depends(require_scope("media"))])
 async def edit_image_api(req: ImageEditRequest, rt: JarvisRuntime = Depends(get_runtime)):
     if not rt.image_edit or not rt.image_studio_db:
         raise HTTPException(500, "Image Edit engine not initialized.")
@@ -1175,7 +1175,7 @@ async def update_session_state(
     return {"status": "updated" if success else "failed", "session_id": session_id}
 
 
-@app.post("/api/image/upscale")
+@app.post("/api/image/upscale", dependencies=[Depends(require_scope("media"))])
 async def upscale_image_api(
     payload: Dict[str, Any] = Body(...),
     rt: JarvisRuntime = Depends(get_runtime)
@@ -1482,7 +1482,7 @@ async def get_media_job_status(job_id: str, rt: JarvisRuntime = Depends(get_runt
 
 
 # ── Imagine Video Studio Endpoints (V3 Motion Synthesis) ───────────────
-@app.post("/api/video/generate")
+@app.post("/api/video/generate", dependencies=[Depends(require_scope("media"))])
 async def generate_motion_video_api(
     payload: Dict[str, Any] = Body(...),
     rt: JarvisRuntime = Depends(get_runtime)
@@ -1732,7 +1732,7 @@ async def update_settings(req: SettingsUpdateRequest):
 
 
 # ── API Key Endpoints ────────────────────────────────────────────────
-@app.post("/api/keys/create")
+@app.post("/api/keys/create", dependencies=[Depends(require_scope("admin"))])
 async def create_api_key(req: APIKeyCreateRequest, rt: JarvisRuntime = Depends(get_runtime)):
     return rt.key_mgr.create_key(req.name, req.permissions, req.rate_limit)
 

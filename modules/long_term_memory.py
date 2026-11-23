@@ -31,16 +31,16 @@ class HybridRAGMemory:
         self._load_bm25()
 
         # Durable SQLite-backed Background Memory Task Queue
-        self.memory_generation_id = 0
         self.db_path = config.DATA_DIR / "memory_queue.sqlite"
         self._init_memory_db()
+        self.memory_generation_id = self._get_persisted_generation_id()
         self._task_queue = queue.Queue()
         self._recover_pending_tasks()
         self._worker_thread = threading.Thread(target=self._process_memory_queue, daemon=True)
         self._worker_thread.start()
         self.last_extraction_status = {"status": "idle", "timestamp": None, "extracted_count": 0}
         
-        logging.info("HybridRAGMemory initialized successfully with durable SQLite task worker.")
+        logging.info(f"HybridRAGMemory initialized successfully with durable SQLite task worker (generation_id={self.memory_generation_id}).")
 
     def _init_memory_db(self):
         import sqlite3
@@ -55,6 +55,42 @@ class HybridRAGMemory:
                     completed_at TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+
+    def _get_persisted_generation_id(self) -> int:
+        import sqlite3
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM memory_metadata WHERE key = 'memory_generation_id'")
+                row = cursor.fetchone()
+                if row:
+                    return int(row[0])
+                cursor.execute("INSERT INTO memory_metadata (key, value) VALUES ('memory_generation_id', '0')")
+                return 0
+        except Exception as e:
+            logging.warning(f"Failed to read memory_generation_id from db: {e}")
+            return 0
+
+    def _increment_persisted_generation_id(self) -> int:
+        import sqlite3
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM memory_metadata WHERE key = 'memory_generation_id'")
+                row = cursor.fetchone()
+                current_id = int(row[0]) if row else 0
+                new_id = current_id + 1
+                cursor.execute("INSERT OR REPLACE INTO memory_metadata (key, value) VALUES ('memory_generation_id', ?)", (str(new_id),))
+                return new_id
+        except Exception as e:
+            logging.warning(f"Failed to persist incremented memory_generation_id: {e}")
+            return getattr(self, "memory_generation_id", 0) + 1
 
     def _recover_pending_tasks(self):
         """Pushes any unfinished (pending or processing) tasks from previous sessions back into the active worker queue."""
@@ -424,8 +460,8 @@ class HybridRAGMemory:
         return deleted
 
     def clear_all(self):
-        # Invalidate existing tasks by incrementing memory_generation_id
-        self.memory_generation_id += 1
+        # Invalidate existing tasks by incrementing persisted memory_generation_id
+        self.memory_generation_id = self._increment_persisted_generation_id()
         # Drain in-memory task queue immediately
         try:
             while not self._task_queue.empty():
