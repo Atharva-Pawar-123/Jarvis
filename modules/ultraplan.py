@@ -23,16 +23,22 @@ class TaskPlan(BaseModel):
     sub_tasks: List[str] = Field(..., description="A list of distinct, independent sub-tasks to accomplish the goal.")
 
 class WorkerAgent(threading.Thread):
-    """A background worker agent that can execute a specific sub-task."""
-    def __init__(self, task_id: int, task_description: str, llm: Any, result_queue: queue.Queue):
+    """A background worker agent that can execute a specific sub-task with cooperative cancellation."""
+    def __init__(self, task_id: int, task_description: str, llm: Any, result_queue: queue.Queue, cancel_event: threading.Event = None):
         super().__init__()
         self.task_id = task_id
         self.task_description = task_description
         self.llm = llm
         self.result_queue = result_queue
+        self.cancel_event = cancel_event or threading.Event()
         self.daemon = True
 
     def run(self):
+        if self.cancel_event.is_set():
+            logger.info(f"[Worker {self.task_id}] Cancelled before start.")
+            self.result_queue.put({"task_id": self.task_id, "status": "cancelled", "error": "Task was cancelled before execution"})
+            return
+
         logger.info(f"[Worker {self.task_id}] Starting task: {self.task_description}")
         
         messages = [
@@ -48,6 +54,11 @@ class WorkerAgent(threading.Thread):
                 result = self.llm.generate(messages)
             else:
                 result = str(self.llm)
+
+            if self.cancel_event.is_set():
+                logger.info(f"[Worker {self.task_id}] Task completed after cancellation flag was set; result discarded.")
+                return
+
             logger.info(f"[Worker {self.task_id}] Completed task.")
             self.result_queue.put({"task_id": self.task_id, "status": "success", "result": result})
         except Exception as e:
@@ -134,16 +145,19 @@ class UltraPlanCoordinator:
                 max_workers=min(len(tasks), 3), thread_name_prefix="ultraplan-worker"
             )
             result_queue = queue.Queue()
+            cancel_event = threading.Event()
             futures = []
             for i, task_desc in enumerate(tasks):
-                worker = WorkerAgent(task_id=i+1, task_description=task_desc, llm=self.llm, result_queue=result_queue)
+                worker = WorkerAgent(task_id=i+1, task_description=task_desc, llm=self.llm, result_queue=result_queue, cancel_event=cancel_event)
                 futures.append(worker_executor.submit(worker.run))
 
             # Step 3: Wait for results with a hard per-task timeout
             done, not_done = concurrent.futures.wait(futures, timeout=60.0)
-            for f in not_done:
-                f.cancel()
-                logger.warning(f"UltraPlan worker timed out after 60s and was cancelled.")
+            if not_done:
+                cancel_event.set()
+                for f in not_done:
+                    f.cancel()
+                logger.warning(f"UltraPlan: {len(not_done)} worker(s) timed out after 60s and were cooperatively cancelled.")
             worker_executor.shutdown(wait=False)
 
             results = []

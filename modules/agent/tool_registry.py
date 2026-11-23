@@ -282,6 +282,9 @@ class StructuredToolRegistry:
             if res is False:
                 is_failure = True
                 err_msg = "Tool returned False."
+            elif res is None:
+                is_failure = True
+                err_msg = "Tool returned None (no output produced)."
             elif isinstance(res, dict):
                 # If explicit 'success' field is present, it is authoritative
                 if "success" in res and res["success"] is False:
