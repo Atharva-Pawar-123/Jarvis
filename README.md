@@ -1,5 +1,5 @@
 # J.A.R.V.I.S. (Just A Rather Very Intelligent System) 🤖✨
-### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.1.1 Stabilized)
+### Fully Local, Autonomous, 100% Offline AI Assistant for Personal Hardware (V3.2 Stable)
 
 ---
 
@@ -7,18 +7,16 @@
 
 **JARVIS** is an autonomous, fully local, multimodal AI desktop assistant modeled after the iconic Iron Man persona (voiced in the calm, witty, and precise British cadence of Paul Bettany). Engineered specifically for local personal hardware (optimized for NVIDIA RTX 3050 6GB VRAM, 16GB RAM, Windows 10/11), JARVIS operates **completely offline with zero cloud API subscriptions, zero recurring costs, and total data privacy**.
 
-With the rollout of **V3.1.1 Architectural Stabilization Release** (remediating all 77-page engineering audit findings):
-- **Central GPU Lease Coordination**: Full exclusive VRAM lock (`acquire_gpu_lease("forge")`) across local SD generation, inpainting/img2img, ESRGAN upscaling, and neural segmentation, eliminating CUDA OOM thrashing on 6GB VRAM GPUs.
-- **LLM Thread-Safe Coordination**: Safe bridge across sync/async event loops via `asyncio.run_coroutine_threadsafe` preventing Ollama model unparking deadlocks.
-- **Topological DAG Engine Hardening**: Autonomous workflow engine with cycle detection (Kahn's algorithm) and explicit deadlock failure handling instead of silent unlocking of unverified tasks.
-- **UltraPlan Thread Management**: Bounded worker execution via managed `ThreadPoolExecutor` with strict timeouts and cooperative cancellation.
-- **Durable Memory Generation ID**: In-memory task queue draining and `memory_generation_id` validation in `HybridRAGMemory` that completely prevents old pending tasks from resurrecting deleted memories after `clear_all()`.
-- **Canvas Resolution & Brush Alignment**: Inpaint mask canvas dynamically syncs to natural image resolution with 1:1 cursor coordinate scaling, restoring accurate brush strokes and ControlNet Magic Wand segmentation overlays.
-- **Lazy Media Asset Streaming**: Dedicated `GET /api/media/asset/{asset_id}` endpoint serving disk assets cleanly without large Base64 payload bloat.
-- **Product Truth & Verifiable Capabilities**: System prompt aligned with verified local tools, removing hallucinated claims (e.g. Pollinations AI, uninstalled camera hooks).
-- **Video Encoding Verification**: Added `cv2.VideoWriter.isOpened()` checking and decode validation via `cv2.VideoCapture` before returning synthesized motion clips.
-- **Full Security Gate & API Key Middleware**: Complete approval future cleanup on disconnect, strict confirmation for email/WhatsApp actions, and unified API key middleware.
-- **100% Passing Test Suite**: 95 passing tests with full regression coverage.
+With the rollout of the **V3.2 Production Hardening & Stabilization Release** (remediating all comprehensive engineering audit findings):
+- **Central GPU Lease Coordination & Queuing**: Full exclusive VRAM lock (`acquire_gpu_lease("forge")`) across local SD generation, inpainting/img2img, ESRGAN upscaling, neural segmentation, and SVD/FastVideo motion video queues, completely preventing CUDA OOM thrashing on 6GB VRAM GPUs.
+- **ControlNet Preprocessor Defensive Guarding**: Injected explicit positive dimensions (`processor_res: 512, threshold_a: 64, threshold_b: 64`) and null-guards in Forge's `controlnet.py` eliminating `AttributeError: 'NoneType' object has no attribute 'slider_resolution'`.
+- **Scoped API Key Enforcement**: Route-level declarative scope checks (`require_scope("chat" | "media" | "tools" | "admin")`) preventing low-privilege API keys from invoking arbitrary system shell commands or media pipelines.
+- **SSRF Prevention with DNS Resolution**: Upgraded network and browser tooling with `socket.getaddrinfo()` to block loopback, link-local, and private subnets against DNS-rebinding attacks.
+- **Durable Memory Generation ID in SQLite**: Persisted `memory_generation_id` across server reboots in `memory_queue.sqlite` and decoupled fact extraction from ChromaDB commits, preventing race conditions during memory wipes.
+- **Topological DAG Engine Hardening**: Autonomous workflow engine with cycle detection (Kahn's algorithm) and strict dependency validation rejecting unmapped nodes rather than silently executing altered plans.
+- **UltraPlan Thread Management**: Cooperative cancellation tokens (`cancel_event = threading.Event()`) combined with backward-compatible `WorkerAgent(threading.Thread)` execution.
+- **Image Studio Canvas & Responsive Popover Controls**: Replaced overflowing inline brush sliders with a compact popover trigger (`Size: 24px`), widened console layout, and restored full image height (`max-h-[68vh]`) with bottom scroll clearance (`pb-72`).
+- **100% Passing Test Suite**: 97 passing tests with full regression and scope verification coverage.
 
 ---
 
