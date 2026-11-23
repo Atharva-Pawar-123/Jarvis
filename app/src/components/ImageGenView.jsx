@@ -1351,7 +1351,7 @@ export default function ImageGenView() {
             </div>
 
             {/* Floating Edit Console */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4 z-20">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-4xl px-4 z-20">
               <div className="bg-[#0A182E]/90 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col gap-2">
                 {/* Reference Images Tray (Up to 5 References) */}
                 {referenceImages.length > 0 && (
@@ -1412,8 +1412,8 @@ export default function ImageGenView() {
                 />
 
                 {/* Edit Controls Pills */}
-                <div className="flex items-center justify-between pt-1 border-t border-cyan-500/15 text-xs">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-cyan-500/15 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink min-w-0">
                     {/* Model Picker Pill in Edit Mode */}
                     <div className="relative" ref={editModelMenuRef}>
                       <button
@@ -1605,7 +1605,7 @@ export default function ImageGenView() {
                   <button
                     onClick={handleEdit}
                     disabled={isEditing || !editPrompt.trim() || !initImage}
-                    className="px-5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-all shadow-[0_0_12px_rgba(0,200,255,0.4)] disabled:opacity-40 disabled:shadow-none flex items-center gap-1.5"
+                    className="px-4 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-all shadow-[0_0_12px_rgba(0,200,255,0.4)] disabled:opacity-40 disabled:shadow-none flex items-center gap-1.5 shrink-0"
                   >
                     {isEditing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Edit3 className="w-3.5 h-3.5" />}
                     Apply Edit
