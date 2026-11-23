@@ -190,6 +190,9 @@ class ImageEditEngine:
                 "module": cn_module,
                 "model": resolved_model,
                 "weight": 1.0,
+                "processor_res": 512,
+                "threshold_a": 64,
+                "threshold_b": 64,
                 "resize_mode": "Just Resize",
                 "control_mode": "Balanced",
             })
@@ -219,6 +222,9 @@ class ImageEditEngine:
                     "module": "none",
                     "model": ref_model,
                     "weight": 0.8,
+                    "processor_res": 512,
+                    "threshold_a": 64,
+                    "threshold_b": 64,
                     "resize_mode": "Crop and Resize",
                     "control_mode": "Balanced",
                 })
