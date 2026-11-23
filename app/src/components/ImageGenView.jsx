@@ -1141,10 +1141,10 @@ export default function ImageGenView() {
 
         {/* ── SUB-TAB 2: EDIT CANVAS (IMAGE-TO-IMAGE & INPAINTING) ─────── */}
         {activeSubTab === 'edit' && (
-          <div className="flex-1 flex flex-col relative overflow-hidden items-center justify-center p-6">
+          <div className="flex-1 flex flex-col relative overflow-y-auto items-center p-6 pb-64">
             {/* Version Lineage Breadcrumbs Bar */}
             {canvasVersions.length > 0 && (
-              <div className="absolute top-4 left-6 flex items-center gap-1.5 z-10 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-xl border border-cyan-500/20 text-xs font-mono">
+              <div className="self-start mb-3 flex items-center gap-1.5 z-10 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-xl border border-cyan-500/20 text-xs font-mono">
                 <span className="text-slate-400">Lineage:</span>
                 {canvasVersions.map((v, i) => (
                   <button
@@ -1159,7 +1159,7 @@ export default function ImageGenView() {
             )}
 
             {/* Central Canvas Viewport */}
-            <div className="flex-1 w-full max-w-4xl flex items-center justify-center relative mb-24">
+            <div className="w-full max-w-4xl flex items-center justify-center relative mb-4">
               {/* Error Banner if SD Forge is offline */}
               {editError && (
                 <div className="absolute top-4 inset-x-8 bg-red-950/80 border border-red-500/40 text-red-200 px-4 py-2.5 rounded-xl backdrop-blur-md z-30 flex items-center justify-between text-xs font-mono shadow-xl animate-fade-in">
@@ -1177,12 +1177,12 @@ export default function ImageGenView() {
               )}
 
               {initImage ? (
-                <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[65vh] group">
+                <div className="relative rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_30px_rgba(0,200,255,0.15)] max-h-[52vh] group">
                   <img
                     ref={imageRef}
                     src={initImage}
                     alt="Base for edit"
-                    className="block object-contain max-h-[65vh] rounded-2xl select-none pointer-events-none"
+                    className="block object-contain max-h-[52vh] rounded-2xl select-none pointer-events-none"
                     onLoad={() => {
                       if (imageRef.current && canvasRef.current) {
                         const img = imageRef.current
