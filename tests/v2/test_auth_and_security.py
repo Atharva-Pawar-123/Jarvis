@@ -104,3 +104,41 @@ class TestApprovalCacheCollision:
         assert auth2 is True
         assert call_count[0] == 1, "Identical non-sensitive payload should reuse session cache"
         assert "active session permission" in reason
+
+
+class TestApiKeyScopeEnforcement:
+    def test_scoped_api_key_permits_allowed_endpoint(self, client):
+        mock_rt = MagicMock()
+        mock_rt.key_mgr.validate_key.return_value = {
+            "key_id": "k1",
+            "name": "chat-only",
+            "permissions": ["chat"]
+        }
+        mock_rt.session_db.create_session.return_value = None
+        mock_rt.session_db.add_message.return_value = None
+        mock_rt.intent.classify.return_value = {"intent": "chat"}
+        mock_rt.llm.generate.return_value = "Hello"
+
+        with patch("server.api_server.get_runtime", return_value=mock_rt):
+            app.state.jarvis = mock_rt
+            headers = {"Authorization": "Bearer jarvis_test_chat_key"}
+            # POST /api/command requires 'chat' scope
+            res = client.post("/api/command", json={"command": "hi", "session_id": "s1"}, headers=headers)
+            assert res.status_code == 200
+
+    def test_scoped_api_key_blocks_unauthorized_scope(self, client):
+        mock_rt = MagicMock()
+        mock_rt.key_mgr.validate_key.return_value = {
+            "key_id": "k2",
+            "name": "chat-only",
+            "permissions": ["chat"]
+        }
+
+        with patch("server.api_server.get_runtime", return_value=mock_rt):
+            app.state.jarvis = mock_rt
+            headers = {"Authorization": "Bearer jarvis_test_chat_key"}
+            # POST /api/image/generate requires 'media' scope, which this key lacks
+            res = client.post("/api/image/generate", json={"prompt": "cyberpunk city"}, headers=headers)
+            assert res.status_code == 403
+            assert "lacks required scope 'media'" in res.json().get("detail", "")
+
